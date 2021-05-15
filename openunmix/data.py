@@ -7,6 +7,9 @@ import torch
 import torch.utils.data
 import torchaudio
 import tqdm
+from openunmix import transforms
+from openunmix import filtering
+from openunmix import model
 
 
 def load_info(path: str) -> dict:
@@ -295,6 +298,7 @@ def load_datasets(
             help="loads wav instead of STEMS",
         )
         parser.add_argument("--samples-per-track", type=int, default=64)
+        parser.add_argument("--valid-samples-per-track", type=int, default=1)
         parser.add_argument("--source-augmentations", type=str, nargs="+")
 
         args = parser.parse_args()
@@ -319,7 +323,7 @@ def load_datasets(
         )
 
         valid_dataset = MUSDBDataset(
-            split="valid", samples_per_track=1, seq_duration=None, **dataset_kwargs
+            split="valid", samples_per_track=args.valid_samples_per_track, seq_duration=args.valid_seq_dur, **dataset_kwargs
         )
 
     return train_dataset, valid_dataset, args
@@ -851,7 +855,7 @@ class MUSDBDataset(UnmixDataset):
         track = self.mus.tracks[index // self.samples_per_track]
 
         # at training time we assemble a custom mix
-        if self.split == "train" and self.seq_duration:
+        if self.seq_duration:
             for k, source in enumerate(self.mus.setup["sources"]):
                 # memorize index of target source
                 if source == self.target:
@@ -863,10 +867,16 @@ class MUSDBDataset(UnmixDataset):
 
                 # set the excerpt duration
 
-                track.chunk_duration = self.seq_duration
+                # don't try to make a bigger duration than exists
+                # but we still want to limit so that we're not trying
+                # to take the NSGT of an entire 5 minute track
+                dur = min(track.duration, self.seq_duration)
+
+                track.chunk_duration = dur
                 # set random start position
-                track.chunk_start = random.uniform(0, track.duration - self.seq_duration)
+                track.chunk_start = random.uniform(0, track.duration - dur)
                 # load source audio and apply time domain source_augmentations
+
                 audio = torch.as_tensor(track.sources[source].audio.T, dtype=torch.float32)
                 audio = self.source_augmentations(audio)
                 audio_sources.append(audio)
@@ -888,6 +898,7 @@ class MUSDBDataset(UnmixDataset):
         # pre-mixed musdb track
         else:
             # get the non-linear source mix straight from musdb
+
             x = torch.as_tensor(track.audio.T, dtype=torch.float32)
             y = torch.as_tensor(track.targets[self.target].audio.T, dtype=torch.float32)
 
@@ -935,6 +946,12 @@ if __name__ == "__main__":
         default=5.0,
         help="Duration of <=0.0 will result in the full audio",
     )
+    parser.add_argument(
+        "--valid-seq-dur",
+        type=float,
+        default=5.0,
+        help="Duration of <=0.0 will result in the full audio",
+    )
 
     parser.add_argument("--batch-size", type=int, default=16)
 
@@ -945,21 +962,37 @@ if __name__ == "__main__":
     train_dataset, valid_dataset, args = load_datasets(parser, args)
     print("Audio Backend: ", torchaudio.get_audio_backend())
 
-    # Iterate over training dataset and compute statistics
-    total_training_duration = 0
-    for k in tqdm.tqdm(range(len(train_dataset))):
-        x, y = train_dataset[k]
-        total_training_duration += x.shape[1] / train_dataset.sample_rate
-        if args.save:
-            torchaudio.save("test/" + str(k) + "x.wav", x.T, train_dataset.sample_rate)
-            torchaudio.save("test/" + str(k) + "y.wav", y.T, train_dataset.sample_rate)
+    nsgt, insgt = transforms.make_filterbanks(sample_rate=train_dataset.sample_rate, device="cuda")
 
-    print("Total training duration (h): ", total_training_duration / 3600)
-    print("Number of train samples: ", len(train_dataset))
-    print("Number of validation samples: ", len(valid_dataset))
+    cnorm = model.ComplexNorm(mono=False)
+
+    # Iterate over training dataset and compute statistics
+    #total_training_duration = 0
+    #for k in tqdm.tqdm(range(len(train_dataset))):
+    #    x, y = train_dataset[k]
+
+    #    print('round trip through nsgt')
+    #    nsgt_x = nsgt(x)
+    #    nsgt_y = nsgt(y)
+    #    x_ = insgt(nsgt_x)
+    #    y_ = insgt(nsgt_y)
+
+    #    total_training_duration += x.shape[1] / train_dataset.sample_rate
+    #    if args.save:
+    #        print('sample rate: {0}'.format(int(train_dataset.sample_rate)))
+    #        torchaudio.save("test/" + str(k) + "x.wav", x, int(train_dataset.sample_rate))
+    #        torchaudio.save("test/" + str(k) + "y.wav", y, int(train_dataset.sample_rate))
+
+    #        torchaudio.save("test/" + str(k) + "x_nsgt_rtt.wav", x_, int(train_dataset.sample_rate))
+    #        torchaudio.save("test/" + str(k) + "y_nsgt_rtt.wav", y_, int(train_dataset.sample_rate))
+
+    #print("Total training duration (h): ", total_training_duration / 3600)
+    #print("Number of train samples: ", len(train_dataset))
+    #print("Number of validation samples: ", len(valid_dataset))
 
     # iterate over dataloader
     train_dataset.seq_duration = args.seq_dur
+    print('seq dur: {0}'.format(args.seq_dur))
 
     train_sampler = torch.utils.data.DataLoader(
         train_dataset,
@@ -968,5 +1001,40 @@ if __name__ == "__main__":
         num_workers=4,
     )
 
-    for x, y in tqdm.tqdm(train_sampler):
-        print(x.shape)
+    for i, (x, y) in enumerate(tqdm.tqdm(train_sampler)):
+        print('mix: {0}'.format(x.shape))
+        print('target: {0}'.format(y.shape))
+        print('round trip through nsgt')
+
+        nsgt_x = nsgt(x)
+        nsgt_y = nsgt(y)
+
+        print('nsgt_x: {0} {1}'.format(nsgt_x.shape, nsgt_x.dtype))
+        print('nsgt_y: {0} {1}'.format(nsgt_y.shape, nsgt_y.dtype))
+
+        Xmag = cnorm(nsgt_x)
+        Ymag = cnorm(nsgt_y)
+
+        print('Xmag: {0} {1}'.format(Xmag.shape, Xmag.dtype))
+        print('Ymag: {0} {1}'.format(Ymag.shape, Ymag.dtype))
+
+        Xphase = filtering.atan2(nsgt_x[..., 1], nsgt_x[..., 0])
+        Ycomplex = torch.empty_like(nsgt_y)
+
+        print('Xphase: {0} {1}'.format(Xphase.shape, Xphase.dtype))
+        print('Ycomplex: {0} {1}'.format(Ycomplex.shape, Ycomplex.dtype))
+        print('Ymag: {0} {1}'.format(Ymag.shape, Ymag.dtype))
+
+        Ycomplex[..., 0] = Ymag * torch.cos(Xphase)
+        Ycomplex[..., 1] = Ymag * torch.sin(Xphase)
+
+        y_ = insgt(Ycomplex, y.shape[-1])
+
+        #total_training_duration += x.shape[1] / train_dataset.sample_rate
+        if args.save:
+            print('sample rate: {0}'.format(int(train_dataset.sample_rate)))
+            torchaudio.save("test/" + str(i) + "x.wav", x[0], int(train_dataset.sample_rate))
+            torchaudio.save("test/" + str(i) + "y.wav", y[0], int(train_dataset.sample_rate))
+
+            torchaudio.save("test/" + str(i) + "mixphase_oracle.wav", y_[0].cpu(), int(train_dataset.sample_rate))
+            #torchaudio.save("test/" + str(i) + "yx_nsgt_rtt.wav", y_[0].cpu(), int(train_dataset.sample_rate))

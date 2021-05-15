@@ -12,30 +12,11 @@ import json
 
 import openunmix
 from openunmix import model
-
-
-def bandwidth_to_max_bin(rate: float, n_fft: int, bandwidth: float) -> np.ndarray:
-    """Convert bandwidth to maximum bin count
-
-    Assuming lapped transforms such as STFT
-
-    Args:
-        rate (int): Sample rate
-        n_fft (int): FFT length
-        bandwidth (float): Target bandwidth in Hz
-
-    Returns:
-        np.ndarray: maximum frequency bin
-    """
-    freqs = np.linspace(0, rate / 2, n_fft // 2 + 1, endpoint=True)
-
-    return np.max(np.where(freqs <= bandwidth)[0]) + 1
+from openunmix import transforms
 
 
 def save_checkpoint(state: dict, is_best: bool, path: str, target: str):
-    """Convert bandwidth to maximum bin count
-
-    Assuming lapped transforms such as STFT
+    """Save checkpoint
 
     Args:
         state (dict): torch model state dict
@@ -112,7 +93,7 @@ class EarlyStopping(object):
             self.is_better = lambda a, best: a > best + min_delta
 
 
-def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrained=True):
+def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrained=True, sample_rate=44100):
     """Core model loader
 
     target model path can be either <target>.pth, or <target>-sha256.pth
@@ -125,40 +106,45 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
         targets = [targets]
 
     model_path = Path(model_str_or_path).expanduser()
-    if not model_path.exists():
-        # model path does not exist, use pretrained models
-        try:
-            # disable progress bar
-            hub_loader = getattr(openunmix, model_str_or_path + "_spec")
-            err = io.StringIO()
-            with redirect_stderr(err):
-                return hub_loader(targets=targets, device=device, pretrained=pretrained)
-            print(err.getvalue())
-        except AttributeError:
-            raise NameError("Model does not exist on torchhub")
-            # assume model is a path to a local model_str_or_path directory
-    else:
-        models = {}
-        for target in targets:
-            # load model from disk
-            with open(Path(model_path, target + ".json"), "r") as stream:
-                results = json.load(stream)
 
-            target_model_path = next(Path(model_path).glob("%s*.pth" % target))
-            state = torch.load(target_model_path, map_location=device)
+    models = {}
+    models_nsgt = {}
 
-            models[target] = model.OpenUnmix(
-                nb_bins=results["args"]["nfft"] // 2 + 1,
-                nb_channels=results["args"]["nb_channels"],
-                hidden_size=results["args"]["hidden_size"],
-                max_bin=state["input_mean"].shape[0],
-            )
+    for target in targets:
+        # load model from disk
+        with open(Path(model_path, target + ".json"), "r") as stream:
+            results = json.load(stream)
 
-            if pretrained:
-                models[target].load_state_dict(state, strict=False)
+        target_model_path = next(Path(model_path).glob("%s*.pth" % target))
+        state = torch.load(target_model_path, map_location=device)
 
-            models[target].to(device)
-        return models
+        # need to configure an NSGT object to peek at its params to set up the neural network
+        # e.g. M depends on the sllen which depends on fscale+fmin+fmax
+        nsgt_base = transforms.NSGTBase(
+            results["args"]["fscale"],
+            results["args"]["fbins"],
+            results["args"]["fmin"],
+            results["args"]["sllen"],
+            gamma=results["args"]["gamma"],
+            fs=sample_rate,
+            device=device
+        )
+
+        models[target] = model.OpenUnmix(
+            nsgt_base.fbins_actual,
+            nsgt_base.M,
+            nb_channels=results["args"]["nb_channels"],
+            nb_layers=results["args"]["layers"],
+            unidirectional=results["args"]["unidirectional"],
+        )
+
+        models_nsgt[target] = nsgt_base
+
+        if pretrained:
+            models[target].load_state_dict(state, strict=False)
+
+        models[target].to(device)
+    return models, models_nsgt
 
 
 def load_separator(
@@ -169,7 +155,6 @@ def load_separator(
     wiener_win_len: Optional[int] = 300,
     device: Union[str, torch.device] = "cpu",
     pretrained: bool = True,
-    filterbank: str = "torch",
 ):
     """Separator loader
 
@@ -182,28 +167,8 @@ def load_separator(
         targets (list of str or None): list of target names. When loading a
             pre-trained model, all `targets` can be None as all targets
             will be loaded
-        niter (int): Number of EM steps for refining initial estimates
-            in a post-processing stage. `--niter 0` skips this step altogether
-            (and thus makes separation significantly faster) More iterations
-            can get better interference reduction at the price of artifacts.
-            Defaults to `1`.
-        residual (bool): Computes a residual target, for custom separation
-            scenarios when not all targets are available (at the expense
-            of slightly less performance). E.g vocal/accompaniment
-            Defaults to `False`.
-        wiener_win_len (int): The size of the excerpts (number of frames) on
-            which to apply filtering independently. This means assuming
-            time varying stereo models and localization of sources.
-            None means not batching but using the whole signal. It comes at the
-            price of a much larger memory usage.
-            Defaults to `300`
         device (str): torch device, defaults to `cpu`
         pretrained (bool): determines if loading pre-trained weights
-        filterbank (str): filterbank implementation method.
-            Supported are `['torch', 'asteroid']`. `torch` is about 30% faster
-            compared to `asteroid` on large FFT sizes such as 4096. However,
-            asteroids stft can be exported to onnx, which makes is practical
-            for deployment.
     """
     model_path = Path(model_str_or_path).expanduser()
 
@@ -212,36 +177,20 @@ def load_separator(
         if targets is None:
             raise UserWarning("For custom models, please specify the targets")
 
-        target_models = load_target_models(
-            targets=targets, model_str_or_path=model_path, pretrained=pretrained
-        )
-
         with open(Path(model_path, "separator.json"), "r") as stream:
             enc_conf = json.load(stream)
 
+        target_models, target_models_nsgt = load_target_models(
+            targets=targets, model_str_or_path=model_path, pretrained=pretrained, sample_rate=enc_conf["sample_rate"], device=device
+        )
+
         separator = model.Separator(
             target_models=target_models,
-            niter=niter,
-            residual=residual,
-            wiener_win_len=wiener_win_len,
+            target_models_nsgt=target_models_nsgt,
             sample_rate=enc_conf["sample_rate"],
-            n_fft=enc_conf["nfft"],
-            n_hop=enc_conf["nhop"],
             nb_channels=enc_conf["nb_channels"],
-            filterbank=filterbank,
-        ).to(device)
-
-    # otherwise we load the separator from torchhub
-    else:
-        hub_loader = getattr(openunmix, model_str_or_path)
-        separator = hub_loader(
-            targets=targets,
             device=device,
-            pretrained=True,
-            niter=niter,
-            residual=residual,
-            filterbank=filterbank,
-        )
+        ).to(device)
 
     return separator
 

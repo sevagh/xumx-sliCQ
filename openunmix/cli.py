@@ -68,29 +68,6 @@ def separate():
         help="Set torchaudio backend "
         "(`sox_io`, `sox`, `soundfile` or `stempeg`), defaults to `sox_io`",
     )
-
-    parser.add_argument(
-        "--niter",
-        type=int,
-        default=1,
-        help="number of iterations for refining results.",
-    )
-
-    parser.add_argument(
-        "--wiener-win-len",
-        type=int,
-        default=300,
-        help="Number of frames on which to apply filtering independently",
-    )
-
-    parser.add_argument(
-        "--residual",
-        type=str,
-        default=None,
-        help="if provided, build a source with given name"
-        "for the mix minus all estimated targets",
-    )
-
     parser.add_argument(
         "--aggregate",
         type=str,
@@ -102,16 +79,6 @@ def separate():
         '"bass","other"]}\'',
     )
 
-    parser.add_argument(
-        "--filterbank",
-        type=str,
-        default="torch",
-        help="filterbank implementation method. "
-        "Supported: `['torch', 'asteroid']`. `torch` is ~30% faster"
-        "compared to `asteroid` on large FFT sizes such as 4096. However"
-        "asteroids stft can be exported to onnx, which makes is practical"
-        "for deployment.",
-    )
     args = parser.parse_args()
 
     if args.audio_backend != "stempeg":
@@ -128,12 +95,8 @@ def separate():
     separator = utils.load_separator(
         model_str_or_path=args.model,
         targets=args.targets,
-        niter=args.niter,
-        residual=args.residual,
-        wiener_win_len=args.wiener_win_len,
         device=device,
-        pretrained=True,
-        filterbank=args.filterbank,
+        pretrained=True
     )
 
     separator.freeze()
@@ -155,7 +118,7 @@ def separate():
                 sample_rate=separator.sample_rate,
                 dtype=np.float32,
             )
-            audio = torch.tensor(audio)
+            audio = torch.tensor(audio, device=device)
         else:
             audio, rate = data.load_audio(input_file, start=args.start, dur=args.duration)
         estimates = predict.separate(

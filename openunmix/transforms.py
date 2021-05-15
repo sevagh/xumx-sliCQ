@@ -1,175 +1,152 @@
 from typing import Optional
 
+import numpy as np
 import torch
 import torchaudio
 from torch import Tensor
 import torch.nn as nn
-
-try:
-    from asteroid_filterbanks.enc_dec import Encoder, Decoder
-    from asteroid_filterbanks.transforms import to_torchaudio, from_torchaudio
-    from asteroid_filterbanks import torch_stft_fb
-except ImportError:
-    pass
+from .filtering import atan2
+import warnings
 
 
-def make_filterbanks(n_fft=4096, n_hop=1024, center=False, sample_rate=44100.0, method="torch"):
-    window = nn.Parameter(torch.hann_window(n_fft), requires_grad=False)
+from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, VQLogScale
 
-    if method == "torch":
-        encoder = TorchSTFT(n_fft=n_fft, n_hop=n_hop, window=window, center=center)
-        decoder = TorchISTFT(n_fft=n_fft, n_hop=n_hop, window=window, center=center)
-    elif method == "asteroid":
-        fb = torch_stft_fb.TorchSTFTFB.from_torch_args(
-            n_fft=n_fft,
-            hop_length=n_hop,
-            win_length=n_fft,
-            window=window,
-            center=center,
-            sample_rate=sample_rate,
-        )
-        encoder = AsteroidSTFT(fb)
-        decoder = AsteroidISTFT(fb)
-    else:
-        raise NotImplementedError
+
+def phasemix_sep(X, Ymag):
+    Xphase = atan2(X[..., 1], X[..., 0])
+    Ycomplex = torch.empty_like(X)
+
+    Ycomplex[..., 0] = Ymag * torch.cos(Xphase)
+    Ycomplex[..., 1] = Ymag * torch.sin(Xphase)
+    return Ycomplex
+
+
+def make_filterbanks(nsgt_base, sample_rate=44100.0):
+    if sample_rate != 44100.0:
+        raise ValueError('i was lazy and harcoded a lot of 44100.0, forgive me')
+
+    encoder = NSGT_SL(nsgt_base)
+    decoder = INSGT_SL(nsgt_base)
+
     return encoder, decoder
 
 
-class AsteroidSTFT(nn.Module):
-    def __init__(self, fb):
-        super(AsteroidSTFT, self).__init__()
-        self.enc = Encoder(fb)
+class NSGTBase:
+    def __init__(self, scale, fbins, fmin, sllen, gamma=25., fs=44100, device="cuda"):
+        self.fbins = fbins
+        self.fbins_actual = self.fbins+2 # why 2 for mel with 113 bins?
+        self.fmin = fmin
+        self.fmax = fs/2
+        self.scale = 100.
 
-    def forward(self, x):
-        aux = self.enc(x)
-        return to_torchaudio(aux)
-
-
-class AsteroidISTFT(nn.Module):
-    def __init__(self, fb):
-        super(AsteroidISTFT, self).__init__()
-        self.dec = Decoder(fb)
-
-    def forward(self, X: Tensor, length: Optional[int] = None) -> Tensor:
-        aux = from_torchaudio(X)
-        return self.dec(aux, length=length)
-
-
-class TorchSTFT(nn.Module):
-    """Multichannel Short-Time-Fourier Forward transform
-    uses hard coded hann_window.
-    Args:
-        n_fft (int, optional): transform FFT size. Defaults to 4096.
-        n_hop (int, optional): transform hop size. Defaults to 1024.
-        center (bool, optional): If True, the signals first window is
-            zero padded. Centering is required for a perfect
-            reconstruction of the signal. However, during training
-            of spectrogram models, it can safely turned off.
-            Defaults to `true`
-        window (nn.Parameter, optional): window function
-    """
-
-    def __init__(self, n_fft=4096, n_hop=1024, center=False, window=None):
-        super(TorchSTFT, self).__init__()
-        if window is not None:
-            self.window = nn.Parameter(torch.hann_window(n_fft), requires_grad=False)
+        self.scl = None
+        if scale == 'bark':
+            self.scl = BarkScale(self.fmin, self.fmax, self.fbins)
+        elif scale == 'mel':
+            self.scl = MelScale(self.fmin, self.fmax, self.fbins)
+        elif scale == 'cqlog':
+            self.scl = LogScale(self.fmin, self.fmax, self.fbins)
+        elif scale == 'vqlog':
+            self.scl = VQLogScale(self.fmin, self.fmax, self.fbins, gamma=gamma)
         else:
-            self.window = window
-        self.n_fft = n_fft
-        self.n_hop = n_hop
-        self.center = center
+            raise ValueError(f'unsupported frequency scale {scale}')
+
+        self.sllen = sllen
+
+        min_sllen = self.scl.suggested_sllen(fs)
+
+        if self.sllen < min_sllen:
+            warnings.warn(f"slice length is too short for desired frequency scale, need {min_sllen}")
+
+        trlen = self.sllen//4
+        trlen = trlen + -trlen % 2 # make trlen divisible by 2
+        self.trlen = trlen
+
+        self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=True, multichannel=True, device=device)
+        self.M = self.nsgt.ncoefs
+
+    def max_bins(self, bandwidth): # convert hz bandwidth into bins
+        if bandwidth is None:
+            return None
+        freqs, _ = self.scl()
+        max_bin = min(np.argwhere(freqs > bandwidth))[0]
+        return max_bin+1
+
+
+class NSGT_SL(nn.Module):
+    def __init__(self, nsgt):
+        super(NSGT_SL, self).__init__()
+        self.nsgt = nsgt
 
     def forward(self, x: Tensor) -> Tensor:
-        """STFT forward path
+        """NSGT forward path
         Args:
             x (Tensor): audio waveform of
                 shape (nb_samples, nb_channels, nb_timesteps)
         Returns:
-            STFT (Tensor): complex stft of
-                shape (nb_samples, nb_channels, nb_bins, nb_frames, complex=2)
+            NSGT (Tensor): complex nsgt of
+                shape (nb_samples, nb_channels, nb_bins_1, nb_bins_2, nb_frames, complex=2)
                 last axis is stacked real and imaginary
         """
-
         shape = x.size()
         nb_samples, nb_channels, nb_timesteps = shape
 
         # pack batch
         x = x.view(-1, shape[-1])
 
-        complex_stft = torch.stft(
-            x,
-            n_fft=self.n_fft,
-            hop_length=self.n_hop,
-            window=self.window,
-            center=self.center,
-            normalized=False,
-            onesided=True,
-            pad_mode="reflect",
-            return_complex=True,
-        )
-        stft_f = torch.view_as_real(complex_stft)
+        C = self.nsgt.nsgt.forward((x,))
+        T, I, F1, F2 = C.shape
+
+        # first, moveaxis T, I, F1, F2 to I, F1, F1, T
+        C = torch.moveaxis(C, 0, -2)
+
+        nsgt_f = torch.view_as_real(C)
+
         # unpack batch
-        stft_f = stft_f.view(shape[:-1] + stft_f.shape[-3:])
-        return stft_f
+        nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
+
+        #print(f'nsgt_f.shape: {nsgt_f.shape}')
+
+        return self.nsgt.scale*nsgt_f
 
 
-class TorchISTFT(nn.Module):
-    """Multichannel Inverse-Short-Time-Fourier functional
+class INSGT_SL(nn.Module):
+    '''
     wrapper for torch.istft to support batches
     Args:
-        STFT (Tensor): complex stft of
-            shape (nb_samples, nb_channels, nb_bins, nb_frames, complex=2)
-            last axis is stacked real and imaginary
-        n_fft (int, optional): transform FFT size. Defaults to 4096.
-        n_hop (int, optional): transform hop size. Defaults to 1024.
-        window (callable, optional): window function
-        center (bool, optional): If True, the signals first window is
-            zero padded. Centering is required for a perfect
-            reconstruction of the signal. However, during training
-            of spectrogram models, it can safely turned off.
-            Defaults to `true`
-        length (int, optional): audio signal length to crop the signal
-    Returns:
-        x (Tensor): audio waveform of
-            shape (nb_samples, nb_channels, nb_timesteps)
-    """
+         NSGT (Tensor): complex stft of
+             shape (nb_samples, nb_channels, nb_bins, nb_frames, complex=2)
+             last axis is stacked real and imaginary
+        OR
+             shape (nb_samples, nb_targets, nb_channels, nb_bins, nb_frames, complex=2)
+             last axis is stacked real and imaginary
+     '''
+    def __init__(self, nsgt):
+        super(INSGT_SL, self).__init__()
+        self.nsgt = nsgt
 
-    def __init__(
-        self,
-        n_fft: int = 4096,
-        n_hop: int = 1024,
-        center: bool = False,
-        sample_rate: float = 44100.0,
-        window: Optional[nn.Parameter] = None,
-    ) -> None:
-        super(TorchISTFT, self).__init__()
 
-        self.n_fft = n_fft
-        self.n_hop = n_hop
-        self.center = center
-        self.sample_rate = sample_rate
+    def forward(self, X: Tensor, length: int) -> Tensor:
+        X /= self.nsgt.scale
 
-        if window is not None:
-            self.window = nn.Parameter(torch.hann_window(n_fft), requires_grad=False)
+        Xshape = len(X.shape)
+
+        X = torch.view_as_complex(X)
+
+        shape = X.shape
+
+        if Xshape == 6:
+            X = X.view(X.shape[0]*X.shape[1], *X.shape[2:])
         else:
-            self.window = window
+            X = X.view(X.shape[0]*X.shape[1]*X.shape[2], *X.shape[3:])
 
-    def forward(self, X: Tensor, length: Optional[int] = None) -> Tensor:
-        shape = X.size()
-        X = X.reshape(-1, shape[-3], shape[-2], shape[-1])
+        # moveaxis back into into T x [packed-channels] x F1 x F2
+        X = torch.moveaxis(X, -2, 0)
 
-        y = torch.istft(
-            torch.view_as_complex(X),
-            n_fft=self.n_fft,
-            hop_length=self.n_hop,
-            window=self.window,
-            center=self.center,
-            normalized=False,
-            onesided=True,
-            length=length,
-        )
+        y = self.nsgt.nsgt.backward(X, length)
 
-        y = y.reshape(shape[:-3] + y.shape[-1:])
+        # unpack batch
+        y = y.view(*shape[:-3], -1)
 
         return y
 
@@ -201,7 +178,7 @@ class ComplexNorm(nn.Module):
                 `(...,)`
         """
         # take the magnitude
-        spec = torchaudio.functional.complex_norm(spec, power=self.power)
+        spec = torch.abs(torch.view_as_complex(spec))#, power=self.power)
 
         # downmix in the mag domain to preserve energy
         if self.mono:

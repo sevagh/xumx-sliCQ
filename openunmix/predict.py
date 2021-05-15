@@ -12,7 +12,6 @@ def separate(
     aggregate_dict=None,
     separator=None,
     device=None,
-    filterbank="torch",
 ):
     """
     Open Unmix functional interface
@@ -46,11 +45,6 @@ def separate(
         separator: if provided, the model.Separator object that will be used
              to perform separation
         device (str): selects device to be used for inference
-        filterbank (str): filterbank implementation method.
-            Supported are `['torch', 'asteroid']`. `torch` is about 30% faster
-            compared to `asteroid` on large FFT sizes such as 4096. However,
-            asteroids stft can be exported to onnx, which makes is practical
-            for deployment.
     """
     if separator is None:
         separator = utils.load_separator(
@@ -61,7 +55,6 @@ def separate(
             wiener_win_len=wiener_win_len,
             device=device,
             pretrained=True,
-            filterbank=filterbank,
         )
         separator.freeze()
         if device:

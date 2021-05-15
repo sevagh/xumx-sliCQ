@@ -5,7 +5,7 @@ channels:
   - pytorch
 
 dependencies:
-  - python=3.7
+  - python=3.6
   - numpy=1.18
   - scipy=1.4
   - pytorch==1.7.0
@@ -22,4 +22,4 @@ dependencies:
     - museval==0.3.1
     - asteroid-filterbanks==0.3.2
     - gitpython
-
+    - "--editable=git+git://github.com/sevagh/nsgt@torch#egg=nsgt"

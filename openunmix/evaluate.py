@@ -8,6 +8,8 @@ import musdb
 import museval
 import torch
 import tqdm
+import random
+import nsgt
 
 from openunmix import utils
 
@@ -24,9 +26,8 @@ def separate_and_evaluate(
     aggregate_dict: dict = None,
     device: Union[str, torch.device] = "cpu",
     wiener_win_len: Optional[int] = None,
-    filterbank="torch",
 ) -> str:
-
+    print('loading separator')
     separator = utils.load_separator(
         model_str_or_path=model_str_or_path,
         targets=targets,
@@ -35,15 +36,16 @@ def separate_and_evaluate(
         wiener_win_len=wiener_win_len,
         device=device,
         pretrained=True,
-        filterbank=filterbank,
     )
 
     separator.freeze()
     separator.to(device)
 
+    print('getting audio')
     audio = torch.as_tensor(track.audio, dtype=torch.float32, device=device)
     audio = utils.preprocess(audio, track.rate, separator.sample_rate)
 
+    print('applying separation')
     estimates = separator(audio)
     estimates = separator.to_dict(estimates, aggregate_dict=aggregate_dict)
 
@@ -52,6 +54,7 @@ def separate_and_evaluate(
     if output_dir:
         mus.save_estimates(estimates, track, output_dir)
 
+    print('performing bss evaluation')
     scores = museval.eval_mus_track(track, estimates, output_dir=eval_dir)
     return scores
 
@@ -176,6 +179,7 @@ if __name__ == "__main__":
     else:
         results = museval.EvalStore()
         for track in tqdm.tqdm(mus.tracks):
+            print('track: {0}'.format(track.name))
             scores = separate_and_evaluate(
                 track,
                 targets=args.targets,
