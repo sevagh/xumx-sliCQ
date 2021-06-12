@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, BatchNorm3d, Conv3d, ConvTranspose3d
+from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm3d, Conv3d, ConvTranspose3d
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
@@ -42,20 +42,21 @@ class OpenUnmix(nn.Module):
         self.conv2 = 55
 
         self.encoder = nn.ModuleList([
-            Conv3d(nb_channels, self.conv1, (5, 11, 42), stride=(1, 1, 3)),
-            ReLU(),
+            Conv3d(nb_channels, self.conv1, (11, 11, 42)),
             BatchNorm3d(self.conv1),
-            Conv3d(self.conv1, self.conv2, (5, 11, 22), stride=(1, 1, 3)),
             ReLU(),
+            Conv3d(self.conv1, self.conv2, (11, 11, 22)),
             BatchNorm3d(self.conv2),
+            ReLU(),
         ])
 
         self.decoder = nn.ModuleList([
-            ConvTranspose3d(self.conv2, self.conv1, (5, 11, 22), stride=(1, 1, 3), output_padding=(0, 0, 2)),
-            ReLU(),
+            ConvTranspose3d(self.conv2, self.conv1, (11, 11, 22)),
             BatchNorm3d(self.conv1),
-            ConvTranspose3d(self.conv1, nb_channels, (5, 11, 42), stride=(1, 1, 3), output_padding=(0, 0, 2)),
             ReLU(),
+            ConvTranspose3d(self.conv1, nb_channels, (11, 11, 42)),
+            BatchNorm3d(nb_channels),
+            Sigmoid(),
         ])
 
         if input_mean is not None:
@@ -111,8 +112,8 @@ class OpenUnmix(nn.Module):
         x = x.permute(0, 1, 3, 2, 4)
 
         # multiply mix by learned mask above
-        #return x * mix
-        return x
+        return x * mix
+        #return x
 
 
 class Separator(nn.Module):

@@ -3,15 +3,15 @@
 musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
 outdir="umx-slicq-1"
 
-batch=16
+batch=8
 epochs=1000
 workers=4
 seqdur=1
 
-# best drum config
+# best drum config for sllen <= 2048
 python scripts/train.py \
 	--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-	--seq-dur=$seqdur --valid-seq-dur=$seqdur --valid-samples-per-track=32 --valid-batch-size=8 \
+	--seq-dur=$seqdur --valid-seq-dur=$seqdur --valid-samples-per-track=64 --valid-batch-size=$batch \
 	--target="drums" \
 	--fscale='mel' --fbins=32 --fmin=115.5 --sllen=2016 \
 	--output "${outdir}" --debug
