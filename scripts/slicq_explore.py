@@ -71,7 +71,34 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def ideal_mixphase(track, tf):
+def assemble_coefs(cqt, ncoefs):
+    """
+    Build a sequence of blocks out of incoming overlapping CQT slices
+    """
+    cqt = iter(cqt)
+    cqt0 = next(cqt)
+    cq0 = np.asarray(cqt0).T
+    shh = cq0.shape[0]//2
+    out = np.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype)
+    
+    fr = 0
+    sh = max(0, min(shh, ncoefs-fr))
+
+    out[fr:fr+sh] = cq0[sh:] # store second half
+
+    # add up slices
+    for i, cqi in enumerate(cqt):
+        cqi = np.asarray(cqi).T
+        out[fr:fr+sh] += cqi[:sh]
+        cqi = cqi[sh:]
+        fr += sh
+        sh = max(0, min(shh, ncoefs-fr))
+        out[fr:fr+sh] = cqi[:sh]
+        
+    return out[:fr]
+
+
+def ideal_mixphase(track, tf, plot=False):
     """
     ideal performance of magnitude from estimated source + phase of mix
     which is the default umx strategy for separation
@@ -81,6 +108,71 @@ def ideal_mixphase(track, tf):
     X = tf.forward(track.audio)
     time_coefs = X.shape[-1]
     #print(f'time coefs: {time_coefs}')
+
+    if plot:
+        print("Plotting t*f space")
+        import matplotlib.pyplot as plt
+
+        # magnitudes are fine here
+        X = torch.abs(X)
+        X_0 = X.detach().clone()
+
+        # mono for plotting
+        print(f'X.shape: {X.shape}')
+        X = X.mean(1, keepdim=False)
+        print(f'X.shape: {X.shape}')
+
+        mp_kern = 100
+        mp = torch.nn.MaxPool1d(mp_kern, mp_kern, return_indices=True)
+
+        X_temporal_pooled, inds = mp(X)
+        print(f'X_temporal_pooled.shape: {X_temporal_pooled.shape}')
+
+        mup = torch.nn.MaxUnpool1d(mp_kern, mp_kern)
+
+        X_recon = mup(X_temporal_pooled, inds, output_size=X.size())
+        print(f'X_recon.shape: {X_recon.shape}')
+
+        norm = lambda x: torch.sqrt(torch.sum(torch.abs(torch.square(torch.abs(x)))))
+        rec_err = norm(X_recon-X)/norm(X)
+
+        print(f'recon after maxpool: {rec_err}')
+        X_temporal_pooled = X_temporal_pooled.reshape(X_temporal_pooled.shape[0]*X_temporal_pooled.shape[-1], X_temporal_pooled.shape[-2])
+
+        X_1 = X.reshape(X.shape[0]*X.shape[-1], -1).detach().cpu().numpy()
+        X_2 = X_temporal_pooled.detach().cpu().numpy()
+        X_3 = X_recon.reshape(X_recon.shape[0]*X_recon.shape[-1], -1).detach().cpu().numpy()
+        X_4 = X_0.detach().cpu().numpy()
+
+        print(f'X_1: {X_1.shape}')
+        print(f'X_2: {X_2.shape}')
+        print(f'X_3: {X_3.shape}')
+        print(f'X_4: {X_4.shape}')
+
+        fig, axs = plt.subplots(4)
+        fig.suptitle('NSGT sliced exploration')
+
+        axs[0].plot(X_1.T)
+        axs[0].set_title('original slicq')
+
+        axs[1].plot(X_2.T)
+        axs[1].set_title('max pooled temporally')
+
+        axs[2].plot(X_3.T)
+        axs[2].set_title('reconstructed from maxpool')
+
+        coefs = assemble_coefs(X_4, int(N*tf.nsgt.coef_factor))
+        print(f'coefs.shape: {coefs.shape}')
+        # downmix coefs to mono
+        coefs = coefs.mean(-1, keepdims=False)
+        print(f'downmixed coefs.shape: {coefs.shape}')
+
+        axs[3].plot(coefs.T)
+        axs[3].set_title('assemble_coefs')
+
+        [ax.grid() for ax in axs]
+
+        plt.show()
 
     #(I, F, T) = X.shape
 
@@ -170,7 +262,7 @@ class TrackEvaluator:
         self.max_sllen = max_sllen
         self.device = device
 
-    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None, reps=1, printinfo=False, divide_by_dim=False):
+    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None, reps=1, printinfo=False, divide_by_dim=False, plot=False):
         bins = int(bins)
 
         med_sdrs_bass = []
@@ -203,7 +295,7 @@ class TrackEvaluator:
                 #print(f'track:\n\t{track.name}\n\t{track.chunk_duration}\n\t{track.chunk_start}')
 
                 N = track.audio.shape[0]
-                ests, dim = ideal_mixphase(track, tf)
+                ests, dim = ideal_mixphase(track, tf, plot=plot)
 
                 if not divide_by_dim:
                     dim = 1.0
@@ -226,7 +318,7 @@ class TrackEvaluator:
 def evaluate_single(f, params, seq_reps):
     #print(f'{scale} {bins} {fmin} {fmax} {gamma}')
 
-    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'], reps=seq_reps, printinfo=True)
+    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'], reps=seq_reps, printinfo=True, plot=True)
 
     print('bass, drums, vocals, other sdr! {0:.2f} {1:.2f} {2:.2f} {3:.2f}'.format(
         curr_score_bass,
