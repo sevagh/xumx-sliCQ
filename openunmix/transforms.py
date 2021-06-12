@@ -9,7 +9,7 @@ from .filtering import atan2
 import warnings
 
 
-from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, VQLogScale
+from .nsgt import NSGT_sliced, BarkScale, MelScale
 
 
 def phasemix_sep(X, Ymag):
@@ -31,10 +31,11 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
     return encoder, decoder
 
 
-class NSGTBase:
-    def __init__(self, scale, fbins, fmin, sllen, gamma=25., fs=44100, device="cuda"):
+class NSGTBase(nn.Module):
+    def __init__(self, scale, fbins, fmin, sllen, fs=44100, device="cuda"):
+        super(NSGTBase, self).__init__()
         self.fbins = fbins
-        self.fbins_actual = self.fbins+2 # why 2 for mel with 113 bins?
+        self.fbins_actual = self.fbins+2 if scale == 'mel' else self.fbins+1
         self.fmin = fmin
         self.fmax = fs/2
         self.scale = 100.
@@ -44,10 +45,6 @@ class NSGTBase:
             self.scl = BarkScale(self.fmin, self.fmax, self.fbins)
         elif scale == 'mel':
             self.scl = MelScale(self.fmin, self.fmax, self.fbins)
-        elif scale == 'cqlog':
-            self.scl = LogScale(self.fmin, self.fmax, self.fbins)
-        elif scale == 'vqlog':
-            self.scl = VQLogScale(self.fmin, self.fmax, self.fbins, gamma=gamma)
         else:
             raise ValueError(f'unsupported frequency scale {scale}')
 
@@ -64,6 +61,7 @@ class NSGTBase:
 
         self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=True, multichannel=True, device=device)
         self.M = self.nsgt.ncoefs
+        self.fs = fs
 
     def max_bins(self, bandwidth): # convert hz bandwidth into bins
         if bandwidth is None:
@@ -72,11 +70,38 @@ class NSGTBase:
         max_bin = min(np.argwhere(freqs > bandwidth))[0]
         return max_bin+1
 
+    def predict_input_size(self, batch_size, nb_channels, seq_dur_s):
+        x = torch.rand((batch_size, nb_channels, int(seq_dur_s*self.fs)), dtype=torch.float32)
+        shape = x.size()
+        nb_samples, nb_channels, nb_timesteps = shape
+
+        # pack batch
+        x = x.view(-1, shape[-1])
+
+        C = self.nsgt.forward((x,))
+        #S, I, F, T = C.shape
+        # slice, channels, frequency bins, time bins
+
+        # first, moveaxis S, I, F, T to I, F, S, T
+        C = torch.moveaxis(C, 0, -2)
+
+        nsgt_f = torch.view_as_real(C)
+
+        # unpack batch
+        nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
+        return nsgt_f.shape[:-1] # real shape is magnitude, dropping implicit complex dimension
+
+    def _apply(self, fn):
+        self.nsgt._apply(fn)
+
 
 class NSGT_SL(nn.Module):
     def __init__(self, nsgt):
         super(NSGT_SL, self).__init__()
         self.nsgt = nsgt
+
+    def _apply(self, fn):
+        self.nsgt._apply(fn)
 
     def forward(self, x: Tensor) -> Tensor:
         """NSGT forward path
@@ -95,17 +120,16 @@ class NSGT_SL(nn.Module):
         x = x.view(-1, shape[-1])
 
         C = self.nsgt.nsgt.forward((x,))
-        T, I, F1, F2 = C.shape
+        #S, I, F, T = C.shape
+        # slice, channels, frequency bins, time bins
 
-        # first, moveaxis T, I, F1, F2 to I, F1, F1, T
+        # first, moveaxis S, I, F, T to I, F, S, T
         C = torch.moveaxis(C, 0, -2)
 
         nsgt_f = torch.view_as_real(C)
 
         # unpack batch
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
-
-        #print(f'nsgt_f.shape: {nsgt_f.shape}')
 
         return self.nsgt.scale*nsgt_f
 

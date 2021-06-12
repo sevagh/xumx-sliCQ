@@ -22,4 +22,5 @@ dependencies:
     - museval==0.3.1
     - asteroid-filterbanks==0.3.2
     - gitpython
+    - torchinfo
     - "--editable=git+git://github.com/sevagh/nsgt@torch#egg=nsgt"

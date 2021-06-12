@@ -12,6 +12,7 @@ import os
 import copy
 import sys
 import torchaudio
+import torchinfo
 from contextlib import contextmanager
 from torch.autograd import Variable
 
@@ -22,6 +23,7 @@ from openunmix import transforms
 from openunmix import filtering
 
 tqdm.monitor_interval = 0
+
 
 def train(args, unmix, encoder, device, train_sampler, optimizer):
     losses = utils.AverageMeter()
@@ -36,14 +38,6 @@ def train(args, unmix, encoder, device, train_sampler, optimizer):
         Y = encoder(y)
         loss = torch.nn.functional.mse_loss(Y_hat, Y)
         loss.backward()
-        #unmix.on_after_backward()
-
-        #####################
-        # gradient clipping #
-        #####################
-
-        #clipping_value = 1 # arbitrary value of your choosing
-        #torch.nn.utils.clip_grad_norm_(unmix.parameters(), clipping_value)
         optimizer.step()
         losses.update(loss.item(), Y.size(1))
     return losses.avg
@@ -64,6 +58,7 @@ def valid(args, unmix, encoder, device, valid_sampler):
 
 
 def get_statistics(args, encoder, dataset):
+    encoder = copy.deepcopy(encoder).to("cpu")
     scaler = sklearn.preprocessing.StandardScaler()
 
     dataset_scaler = copy.deepcopy(dataset)
@@ -71,7 +66,7 @@ def get_statistics(args, encoder, dataset):
         dataset_scaler.random_chunks = False
     else:
         dataset_scaler.random_chunks = False
-        dataset_scaler.seq_duration = args.stats_seq_dur
+        dataset_scaler.seq_duration = None
 
     dataset_scaler.samples_per_track = 1
     dataset_scaler.augmentations = None
@@ -88,7 +83,7 @@ def get_statistics(args, encoder, dataset):
         # norm across frequency bins
         X = encoder(x[None, ...]).mean(1, keepdim=False).permute(0, 2, 1, 3)
         X = X.reshape(-1, X.shape[-2])
-        scaler.partial_fit(np.squeeze(X.cpu().detach()))
+        scaler.partial_fit(np.squeeze(X))
 
     # set inital input scaler values
     std = np.maximum(scaler.scale_, 1e-4 * np.max(scaler.scale_))
@@ -171,12 +166,6 @@ def main():
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
-        "--stats-seq-dur",
-        type=float,
-        default=180.0,
-        help="Sequence duration in seconds for limiting full track size for feature scaling",
-    )
-    parser.add_argument(
         "--valid-seq-dur",
         type=float,
         default=30.0,
@@ -190,9 +179,9 @@ def main():
     )
     parser.add_argument(
         "--fscale",
-        choices=('bark','mel','cqlog','vqlog'),
+        choices=('bark','mel'),
         default='bark',
-        help="Sequence duration in seconds for limiting full track size for validation",
+        help="frequency scale for sliCQ-NSGT",
     )
     parser.add_argument(
         "--sllen",
@@ -211,12 +200,6 @@ def main():
         type=float,
         default=20.,
         help="min frequency for NSGT scale",
-    )
-    parser.add_argument(
-        "--gamma",
-        type=float,
-        default=25.,
-        help="variable-q offset in hz (only used in vqlog scale)",
     )
     parser.add_argument(
         "--layers",
@@ -295,7 +278,6 @@ def main():
         args.fbins,
         args.fmin,
         args.sllen,
-        gamma=args.gamma,
         fs=train_dataset.sample_rate,
         device=device
     )
@@ -332,7 +314,8 @@ def main():
         nb_layers=args.layers,
     ).to(device)
 
-    print('unmix model:\n{0}'.format(unmix))
+    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
+    torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
