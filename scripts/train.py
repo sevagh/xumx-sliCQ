@@ -172,12 +172,6 @@ def main():
         help="Sequence duration in seconds for limiting full track size for validation",
     )
     parser.add_argument(
-        "--unidirectional",
-        action="store_true",
-        default=False,
-        help="Use unidirectional LSTM",
-    )
-    parser.add_argument(
         "--fscale",
         choices=('bark','mel'),
         default='bark',
@@ -200,12 +194,6 @@ def main():
         type=float,
         default=20.,
         help="min frequency for NSGT scale",
-    )
-    parser.add_argument(
-        "--layers",
-        type=int,
-        default=3,
-        help="RNN layers",
     )
     parser.add_argument(
         "--nb-channels",
@@ -291,6 +279,7 @@ def main():
     separator_conf = {
         "sample_rate": train_dataset.sample_rate,
         "nb_channels": args.nb_channels,
+        "seq_dur": args.seq_dur, # have to do inference in chunks of seq_dur in CNN architecture
     }
 
     with open(Path(target_path, "separator.json"), "w") as outfile:
@@ -310,8 +299,6 @@ def main():
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
-        unidirectional=args.unidirectional,
-        nb_layers=args.layers,
     ).to(device)
 
     slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)

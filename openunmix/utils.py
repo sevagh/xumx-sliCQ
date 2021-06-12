@@ -125,7 +125,6 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
             results["args"]["fbins"],
             results["args"]["fmin"],
             results["args"]["sllen"],
-            gamma=results["args"]["gamma"],
             fs=sample_rate,
             device=device
         )
@@ -134,8 +133,6 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
             nsgt_base.fbins_actual,
             nsgt_base.M,
             nb_channels=results["args"]["nb_channels"],
-            nb_layers=results["args"]["layers"],
-            unidirectional=results["args"]["unidirectional"],
         )
 
         models_nsgt[target] = nsgt_base
@@ -189,6 +186,7 @@ def load_separator(
             target_models_nsgt=target_models_nsgt,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
+            seq_dur=enc_conf["seq_dur"],
             device=device,
         ).to(device)
 

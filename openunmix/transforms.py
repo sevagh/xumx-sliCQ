@@ -35,7 +35,6 @@ class NSGTBase(nn.Module):
     def __init__(self, scale, fbins, fmin, sllen, fs=44100, device="cuda"):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
-        self.fbins_actual = self.fbins+2 if scale == 'mel' else self.fbins+1
         self.fmin = fmin
         self.fmax = fs/2
         self.scale = 100.
@@ -62,6 +61,7 @@ class NSGTBase(nn.Module):
         self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=True, multichannel=True, device=device)
         self.M = self.nsgt.ncoefs
         self.fs = fs
+        self.fbins_actual = self.nsgt.fbins_actual
 
     def max_bins(self, bandwidth): # convert hz bandwidth into bins
         if bandwidth is None:
@@ -89,7 +89,9 @@ class NSGTBase(nn.Module):
 
         # unpack batch
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
-        return nsgt_f.shape[:-1] # real shape is magnitude, dropping implicit complex dimension
+
+        # real shape is magnitude, dropping implicit complex dimension
+        return nsgt_f.shape[:-1]
 
     def _apply(self, fn):
         self.nsgt._apply(fn)

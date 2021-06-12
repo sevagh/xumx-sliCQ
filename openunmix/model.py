@@ -17,11 +17,8 @@ class OpenUnmix(nn.Module):
     """OpenUnmix Core spectrogram based separation module.
 
     Args:
-        nb_bins (int): Number of input NSGT sliced tf bins (Default: `126`).
+        nb_bins, M (int): Number of sliCQ-NSGT tf bins
         nb_channels (int): Number of input audio channels (Default: `2`).
-        nb_layers (int): Number of Bi-LSTM layers (Default: `3`).
-        unidirectional (bool): Use causal model useful for realtime purpose.
-            (Default `False`)
         input_mean (ndarray or None): global data mean of shape `(nb_bins, )`.
             Defaults to zeros(nb_bins)
         input_scale (ndarray or None): global data mean of shape `(nb_bins, )`.
@@ -33,8 +30,6 @@ class OpenUnmix(nn.Module):
         nb_bins,
         M,
         nb_channels=2,
-        nb_layers=3,
-        unidirectional=False,
         input_mean=None,
         input_scale=None,
     ):
@@ -59,7 +54,7 @@ class OpenUnmix(nn.Module):
             ConvTranspose3d(self.conv2, self.conv1, (5, 11, 22), stride=(1, 1, 3), output_padding=(0, 0, 2)),
             ReLU(),
             BatchNorm3d(self.conv1),
-            ConvTranspose3d(self.conv1, nb_channels, (5, 11, 42), stride=(1, 1, 3)),
+            ConvTranspose3d(self.conv1, nb_channels, (5, 11, 42), stride=(1, 1, 3), output_padding=(0, 0, 2)),
             ReLU(),
         ])
 
@@ -93,13 +88,8 @@ class OpenUnmix(nn.Module):
                 `(nb_samples, nb_channels, nb_bins, nb_frames)`
         """
         mix = x.detach().clone()
-        print(f'\nmix: {mix.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_frames, nb_m_bins = x.shape
-
-        x = x.reshape(nb_samples*nb_channels, nb_f_bins, nb_frames*nb_m_bins)
-
-        unpool_size = x.size()
 
         x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
@@ -110,9 +100,7 @@ class OpenUnmix(nn.Module):
         x = x + self.input_mean[: self.nb_bins]
         x = x * self.input_scale[: self.nb_bins]
 
-        print(f'x.shape: {x.shape}')
         x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
-        print(f'x.shape: {x.shape}')
 
         for layer in self.encoder:
             x = layer(x)
@@ -156,6 +144,8 @@ class Separator(nn.Module):
         target_models_nsgt: dict,
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
+        seq_dur: float = 6.0,
+        seq_batch: int = 32,
         device: str = "cpu",
     ):
         super(Separator, self).__init__()
@@ -173,11 +163,14 @@ class Separator(nn.Module):
             self.nsgts[name]['insgt'] = insgt
 
         self.complexnorm = ComplexNorm(mono=nb_channels == 1)
+        self.nb_channels = nb_channels
 
         # registering the targets models
         self.target_models = nn.ModuleDict(target_models)
         # adding till https://github.com/pytorch/pytorch/issues/38963
         self.nb_targets = len(self.target_models)
+        self.chunk_size_samples = int(seq_dur*sample_rate)
+        self.seq_batch = seq_batch
         # get the sample_rate as the sample_rate of the first model
         # (tacitly assume it's the same for all targets)
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
@@ -203,48 +196,51 @@ class Separator(nn.Module):
 
         nb_sources = self.nb_targets
         nb_samples = audio.shape[0]
+        N = audio.shape[-1]
 
         # getting the STFT of mix:
         # (nb_samples, nb_channels, nb_bins, nb_frames, 2)
 
-        # initializing spectrograms variable
-        estimates = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
+        chunks_ceil = np.ceil(N/(self.seq_batch*self.chunk_size_samples))
+        pad_last = int(chunks_ceil*self.seq_batch*self.chunk_size_samples) - N
+        audio = torch.nn.functional.pad(audio, (0, pad_last))
+        audio_segs = audio.reshape(-1, nb_samples*self.seq_batch, self.nb_channels, self.chunk_size_samples)
 
-        for j, (target_name, target_module) in enumerate(self.target_models.items()):
-            print(f'separating {target_name}')
+        estimates = []
 
-            nsgt = self.nsgts[target_name]['nsgt']
-            insgt = self.nsgts[target_name]['insgt']
+        for audio_seg in audio_segs:
+            seg_estimates = torch.zeros(audio_seg.shape + (nb_sources,), dtype=audio_seg.dtype, device=self.device)
+            for j, (target_name, target_module) in enumerate(self.target_models.items()):
+                print(f'separating {target_name}')
 
-            X = nsgt(audio)
+                nsgt = self.nsgts[target_name]['nsgt']
+                insgt = self.nsgts[target_name]['insgt']
 
-            Xmag = self.complexnorm(X)
+                X = nsgt(audio_seg)
 
-            # apply current model to get the source magnitude spectrogram
+                Xmag = self.complexnorm(X)
 
-            if target_name == 'bass':
-                # apply it in halves to avoid oom for the larger bass model
-                Xmag_split = torch.split(Xmag, int(np.ceil(Xmag.shape[-2]/2)), dim=-2)
-
-                Xmag_0 = Xmag_split[0]
-                Xmag_1 = Xmag_split[1]
-
-                Ymag_0 = target_module(Xmag_0.detach().clone())
-                Ymag_1 = target_module(Xmag_1.detach().clone())
-
-                Ymag = torch.cat([Ymag_0, Ymag_1], dim=-2)
-            else:
+                # apply current model to get the source magnitude spectrogram
+                #Xmag_segs = torch.split(Xmag, 
                 Ymag = target_module(Xmag.detach().clone())
 
-            Y = phasemix_sep(X, Ymag)
-            y = insgt(Y, audio.shape[-1])
+                Y = phasemix_sep(X, Ymag)
+                y = insgt(Y, audio_seg.shape[-1])
 
-            estimates[..., j] = y
+                seg_estimates[..., j] = y
+
+            estimates.append(seg_estimates)
+
+        est_segs = torch.cat([torch.unsqueeze(est, dim=0) for est in estimates], dim=0)
+        est_segs = est_segs.reshape(nb_samples, self.nb_channels, N+pad_last, -1)
 
         # getting to (nb_samples, nb_targets, nb_channels, nb_samples)
-        estimates = estimates.permute(0, 3, 1, 2).contiguous()
+        ests = est_segs.permute(0, 3, 1, 2).contiguous()
 
-        return estimates
+        # crop the padding
+        ests  = ests[..., : N]
+
+        return ests
 
     def to_dict(self, estimates: Tensor, aggregate_dict: Optional[dict] = None) -> dict:
         """Convert estimates as stacked tensor to dictionary

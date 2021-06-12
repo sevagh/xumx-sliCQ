@@ -128,6 +128,8 @@ class NSGT_sliced(torch.nn.Module):
         else:
             sl = slice(0,None)
 
+        self.fbins_actual = sl.stop
+
         # coefficients per slice
         self.ncoefs = max(int(ceil(float(len(gii))/mii))*mii for mii,gii in zip(self.M[sl],self.g[sl]))
         
