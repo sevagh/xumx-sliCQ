@@ -6,7 +6,7 @@ outdir="umx-nsgt-3"
 batch=16
 epochs=1000
 workers=4
-seqdur=6
+seqdur=1
 
 #for target in drums vocals other bass;
 for target in drums;

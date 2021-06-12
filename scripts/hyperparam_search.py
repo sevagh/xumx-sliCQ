@@ -26,16 +26,16 @@ from https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021
     references = np.random.rand(nb_sources, nb_samples, nb_channels)
     estimates = np.random.rand(nb_sources, nb_samples, nb_channels)
 '''
-def fast_sdr(track, estimates_dct, device):
-    references = torch.cat([torch.unsqueeze(torch.tensor(source.audio, device=device), dim=0) for name, source in track.sources.items()])
-    estimates = torch.cat([torch.unsqueeze(est, dim=0) for est_name, est in estimates_dct.items() if est_name != 'accompaniment'])
+def fast_sdr(track, estimates_dct, target, device):
+    references = torch.cat([torch.unsqueeze(torch.tensor(source.audio, device=device), dim=0) for name, source in track.sources.items() if name == target])
+    estimates = torch.cat([torch.unsqueeze(est, dim=0) for est_name, est in estimates_dct.items() if est_name == target])
 
     # compute SDR for one song
     num = torch.sum(torch.square(references), dim=(1, 2)) + eps
     den = torch.sum(torch.square(references - estimates), dim=(1, 2)) + eps
     sdr_instr = 10.0 * torch.log10(num / den)
     sdr_song = torch.mean(sdr_instr)
-    return torch.median(sdr_song)
+    return sdr_song
 
 
 def atan2(y, x):
@@ -71,110 +71,16 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def assemble_coefs(cqt, ncoefs):
-    """
-    Build a sequence of blocks out of incoming overlapping CQT slices
-    """
-    cqt = iter(cqt)
-    cqt0 = next(cqt)
-    cq0 = np.asarray(cqt0).T
-    shh = cq0.shape[0]//2
-    out = np.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype)
-    
-    fr = 0
-    sh = max(0, min(shh, ncoefs-fr))
-
-    out[fr:fr+sh] = cq0[sh:] # store second half
-
-    # add up slices
-    for i, cqi in enumerate(cqt):
-        cqi = np.asarray(cqi).T
-        out[fr:fr+sh] += cqi[:sh]
-        cqi = cqi[sh:]
-        fr += sh
-        sh = max(0, min(shh, ncoefs-fr))
-        out[fr:fr+sh] = cqi[:sh]
-        
-    return out[:fr]
-
-
-def ideal_mixphase(track, tf, plot=False):
+def ideal_mixphase(track, tf):
     """
     ideal performance of magnitude from estimated source + phase of mix
     which is the default umx strategy for separation
     """
     N = track.audio.shape[0]
 
-    print(f'song duration: {N/tf.fs} seconds')
-
     X = tf.forward(track.audio)
-
-    time_seq_steps = X.shape[-1]
-    print(f'{tf.name} X.shape: {X.shape}, time steps: {time_seq_steps}')
-
-    if plot:
-        print("Plotting t*f space")
-        import matplotlib.pyplot as plt
-
-        print(f'X.shape: {X.shape}')
-        # magnitudes are fine here
-        X = torch.abs(X)
-
-        X_0 = X.detach().cpu().numpy()
-
-        # mono for plotting
-        print(f'X.shape: {X.shape}')
-        X = X.mean(1, keepdim=False)
-        print(f'X.shape: {X.shape}')
-
-        mp_kern = 100
-        mp = torch.nn.MaxPool1d(mp_kern, mp_kern, return_indices=True)
-
-        X_temporal_pooled, inds = mp(X)
-        print(f'X_temporal_pooled.shape: {X_temporal_pooled.shape}')
-
-        mup = torch.nn.MaxUnpool1d(mp_kern, mp_kern)
-
-        X_recon = mup(X_temporal_pooled, inds, output_size=X.size())
-        print(f'X_recon.shape: {X_recon.shape}')
-
-        norm = lambda x: torch.sqrt(torch.sum(torch.abs(torch.square(torch.abs(x)))))
-        rec_err = norm(X_recon-X)/norm(X)
-
-        print(f'recon after maxpool: {rec_err}')
-        X_temporal_pooled = X_temporal_pooled.reshape(X_temporal_pooled.shape[0]*X_temporal_pooled.shape[-1], X_temporal_pooled.shape[-2])
-
-        X_1 = X.reshape(X.shape[0]*X.shape[-1], -1).detach().cpu().numpy()
-        X_2 = X_temporal_pooled.detach().cpu().numpy()
-        X_3 = X_recon.reshape(X_recon.shape[0]*X_recon.shape[-1], -1).detach().cpu().numpy()
-
-        print(f'X_1: {X_1.shape}')
-        print(f'X_2: {X_2.shape}')
-        print(f'X_3: {X_3.shape}')
-
-        fig, axs = plt.subplots(4)
-        fig.suptitle('NSGT sliced exploration')
-
-        axs[0].plot(X_1.T)
-        axs[0].set_title('original slicq')
-
-        axs[1].plot(X_2.T)
-        axs[1].set_title('max pooled temporally')
-
-        axs[2].plot(X_3.T)
-        axs[2].set_title('reconstructed from maxpool')
-        #axs[2].label(f'reconstruction error: {rec_err}')
-
-        print(f'X_0.shape: {X_0.shape}')
-        coefs = assemble_coefs(X_0, int(N*tf.nsgt.coef_factor))
-        coefs = coefs.mean(-1, keepdims=False)
-        print(f'coefs.shape: {coefs.shape}')
-        axs[3].plot(coefs.T)
-        axs[3].set_title('overlap-add with assemble_coefs')
-
-        [ax.grid() for ax in axs]
-
-        plt.show()
+    time_coefs = X.shape[-1]
+    #print(f'time coefs: {time_coefs}')
 
     #(I, F, T) = X.shape
 
@@ -208,7 +114,7 @@ def ideal_mixphase(track, tf, plot=False):
         # set this as the source estimate
         estimates[name] = target_estimate
 
-    return estimates, time_seq_steps
+    return estimates, time_coefs
 
 
 class TFTransform:
@@ -216,7 +122,6 @@ class TFTransform:
         self.fbins = fbins
         self.nsgt = None
         self.device = device
-        self.fs = fs
 
         scl = None
         if fscale == 'mel':
@@ -265,8 +170,13 @@ class TrackEvaluator:
         self.max_sllen = max_sllen
         self.device = device
 
-    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None, reps=1, printinfo=False, plot=False):
+    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None, reps=1, printinfo=False, divide_by_dim=False):
         bins = int(bins)
+
+        med_sdrs_bass = []
+        med_sdrs_drums = []
+        med_sdrs_vocals = []
+        med_sdrs_other = []
 
         tf = TFTransform(44100, scale, fmin, bins, gamma, sllen=sllen, device=self.device)
 
@@ -277,11 +187,11 @@ class TrackEvaluator:
         if tf.sllen > self.max_sllen:
             return (
                 float('-inf'),
+                float('-inf'),
+                float('-inf'),
+                float('-inf'),
                 tf.sllen
             )
-
-        med_sdrs = []
-        mean_coefs = []
 
         for _ in range(reps):
             # repeat for reps x duration
@@ -293,59 +203,127 @@ class TrackEvaluator:
                 #print(f'track:\n\t{track.name}\n\t{track.chunk_duration}\n\t{track.chunk_start}')
 
                 N = track.audio.shape[0]
-                ests, time_seq_steps = ideal_mixphase(track, tf, plot=plot)
+                ests, dim = ideal_mixphase(track, tf)
 
-                # maximize score-per-coefficient
-                med_sdrs.append(fast_sdr(track, ests, device=self.device)/time_seq_steps)
+                if not divide_by_dim:
+                    dim = 1.0
+
+                med_sdrs_bass.append(fast_sdr(track, ests, target='bass', device=self.device)/dim)
+                med_sdrs_drums.append(fast_sdr(track, ests, target='drums', device=self.device)/dim)
+                med_sdrs_vocals.append(fast_sdr(track, ests, target='vocals', device=self.device)/dim)
+                med_sdrs_other.append(fast_sdr(track, ests, target='other', device=self.device)/dim)
 
         # return 1 sdr per source
         return (
-            torch.median(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs], dim=0)),
-            tf.sllen,
+            torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_bass])),
+            torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_drums])),
+            torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_vocals])),
+            torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_other])),
+            tf.sllen
         )
 
 
 def evaluate_single(f, params, seq_reps):
     #print(f'{scale} {bins} {fmin} {fmax} {gamma}')
 
-    curr_score, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'], reps=seq_reps, printinfo=True, plot=True)
+    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'], reps=seq_reps, printinfo=True)
 
-    print('total sdr! {0:.2f}'.format(
-        curr_score,
+    print('bass, drums, vocals, other sdr! {0:.2f} {1:.2f} {2:.2f} {3:.2f}'.format(
+        curr_score_bass,
+        curr_score_drums,
+        curr_score_vocals,
+        curr_score_other,
     ))
+    print('total sdr: {0:.2f}'.format((curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4))
 
 
 def optimize_many(f, params, n_iter, seq_reps, per_target):
-    best_score = float('-inf')
-    best_param = None
+    if per_target:
+        best_score_bass = float('-inf')
+        best_param_bass = None
 
-    fmins = list(np.arange(*params['fmin']))
-    gammas = list(np.arange(*params['gamma']))
+        best_score_drums = float('-inf')
+        best_param_drums = None
 
-    #print(f'optimizing target {target_name}')
-    for _ in tqdm(range(n_iter)):
-        while True: # loop in case we skip for exceeding sllen
-            scale = random.choice(params['scales'])
-            bins = np.random.randint(*params['bins'])
-            fmin = random.choice(fmins)
-            gamma = random.choice(gammas)
-            
-            curr_score, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma, reps=seq_reps)
+        best_score_vocals = float('-inf')
+        best_param_vocals = None
 
-            params_tup = (scale, bins, fmin, gamma, sllen)
+        best_score_other = float('-inf')
+        best_param_other = None
 
-            if curr_score == float('-inf'):
-                # sllen not supported
-                print('reroll for sllen...')
-                continue
+        fmins = list(np.arange(*params['fmin']))
+        gammas = list(np.arange(*params['gamma']))
 
-            if curr_score > best_score:
-                best_score = curr_score
-                best_param = params_tup
-                print('good total sdr! {0}, {1}'.format(best_score, best_param))
-            break
-    print(f'best scores')
-    print(f'total: \t{best_score}\t{best_param}')
+        #print(f'optimizing target {target_name}')
+        for _ in tqdm(range(n_iter)):
+            while True: # loop in case we skip for exceeding sllen
+                scale = random.choice(params['scales'])
+                bins = np.random.randint(*params['bins'])
+                fmin = random.choice(fmins)
+                gamma = random.choice(gammas)
+                
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma, reps=seq_reps)
+
+                params_tup = (scale, bins, fmin, gamma, sllen)
+
+                if curr_score_bass == curr_score_drums and curr_score_drums == curr_score_vocals and curr_score_vocals == curr_score_other and curr_score_other == float('-inf'):
+                    # sllen not supported
+                    print('reroll for sllen...')
+                    continue
+
+                if curr_score_bass > best_score_bass:
+                    best_score_bass = curr_score_bass
+                    best_param_bass = params_tup
+                    print('good bass sdr! {0}, {1}'.format(best_score_bass, best_param_bass))
+                if curr_score_drums > best_score_drums:
+                    best_score_drums = curr_score_drums
+                    best_param_drums = params_tup
+                    print('good drums sdr! {0}, {1}'.format(best_score_drums, best_param_drums))
+                if curr_score_vocals > best_score_vocals:
+                    best_score_vocals = curr_score_vocals
+                    best_param_vocals = params_tup
+                    print('good vocals sdr! {0}, {1}'.format(best_score_vocals, best_param_vocals))
+                if curr_score_other > best_score_other:
+                    best_score_other = curr_score_other
+                    best_param_other = params_tup
+                    print('good other sdr! {0}, {1}'.format(best_score_other, best_param_other))
+                break
+        print(f'best scores')
+        print(f'bass: \t{best_score_bass}\t{best_param_bass}')
+        print(f'drums: \t{best_score_drums}\t{best_param_drums}')
+        print(f'other: \t{best_score_other}\t{best_param_other}')
+        print(f'vocals: \t{best_score_vocals}\t{best_param_vocals}')
+    else:
+        best_score_total = float('-inf')
+        best_param_total = None
+
+        fmins = list(np.arange(*params['fmin']))
+        gammas = list(np.arange(*params['gamma']))
+
+        for _ in tqdm(range(n_iter)):
+            while True: # loop in case we skip for exceeding sllen
+                scale = random.choice(params['scales'])
+                bins = np.random.randint(*params['bins'])
+                fmin = random.choice(fmins)
+                gamma = random.choice(gammas)
+                
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma, reps=seq_reps)
+                tot = (curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4
+
+                params_tup = (scale, bins, fmin, gamma, sllen)
+
+                if curr_score_bass == curr_score_drums and curr_score_drums == curr_score_vocals and curr_score_vocals == curr_score_other and curr_score_other == float('-inf'):
+                    # sllen not supported
+                    print('reroll for sllen...')
+                    continue
+
+                if tot > best_score_total:
+                    best_score_total = tot
+                    best_param_total = params_tup
+                    print('good total sdr! {0}, {1}'.format(best_score_total, best_param_total))
+                break
+        print(f'best scores')
+        print(f'total: \t{best_score_total}\t{best_param_total}')
 
 
 if __name__ == '__main__':

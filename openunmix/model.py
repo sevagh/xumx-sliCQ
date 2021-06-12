@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, LSTM, GRU, Tanh, BatchNorm1d, MaxPool1d, MaxUnpool1d
+from torch.nn import Linear, Parameter, ReLU, BatchNorm3d, Conv3d, ConvTranspose3d
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
@@ -34,7 +34,6 @@ class OpenUnmix(nn.Module):
         M,
         nb_channels=2,
         nb_layers=3,
-        temporal_pooling=100,
         unidirectional=False,
         input_mean=None,
         input_scale=None,
@@ -43,37 +42,26 @@ class OpenUnmix(nn.Module):
 
         self.nb_bins = nb_bins
         self.M = M
-        self.temporal_pooling = temporal_pooling
 
-        self.mp = MaxPool1d(temporal_pooling, temporal_pooling, return_indices=True)
-        self.mup = MaxUnpool1d(temporal_pooling, temporal_pooling)
+        self.conv1 = 25
+        self.conv2 = 55
 
-        # classic dense-RNN model of umx
-        hidden_size = nb_channels*self.nb_bins
-        self.hidden_size = hidden_size
+        self.encoder = nn.ModuleList([
+            Conv3d(nb_channels, self.conv1, (5, 11, 42), stride=(1, 1, 3)),
+            ReLU(),
+            BatchNorm3d(self.conv1),
+            Conv3d(self.conv1, self.conv2, (5, 11, 22), stride=(1, 1, 3)),
+            ReLU(),
+            BatchNorm3d(self.conv2),
+        ])
 
-        if unidirectional:
-            rnn_hidden_size = hidden_size
-        else:
-            rnn_hidden_size = hidden_size // 2
-
-        self.rnn = LSTM(
-            input_size=nb_channels*nb_bins,
-            hidden_size=rnn_hidden_size,
-            num_layers=nb_layers,
-            bidirectional=not unidirectional,
-            batch_first=False,
-            dropout=0.4 if nb_layers > 1 else 0,
-        )
-
-        fc1_hiddensize = hidden_size * 2
-        self.fc1 = Linear(in_features=fc1_hiddensize, out_features=hidden_size, bias=False)
-        self.act1 = ReLU()
-        self.bn1 = BatchNorm1d(hidden_size)
-
-        # refine the outputs of the max unpooling which are poor in quality
-        self.fc2 = Linear(in_features=hidden_size, out_features=hidden_size, bias=False)
-        self.act2 = ReLU()
+        self.decoder = nn.ModuleList([
+            ConvTranspose3d(self.conv2, self.conv1, (5, 11, 22), stride=(1, 1, 3), output_padding=(0, 0, 2)),
+            ReLU(),
+            BatchNorm3d(self.conv1),
+            ConvTranspose3d(self.conv1, nb_channels, (5, 11, 42), stride=(1, 1, 3)),
+            ReLU(),
+        ])
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -113,58 +101,30 @@ class OpenUnmix(nn.Module):
 
         unpool_size = x.size()
 
-        x, pool_inds = self.mp(x)
-
         x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
         # permute so that batch is last for lstm
         x = x.permute(3, 0, 1, 2)
 
-        # get compressed nsgt spectrogram shape
-        nb_frames, nb_samples, nb_channels, nb_bins = x.data.shape
-
         # shift and scale input to mean=0 std=1 (across all bins)
         x = x + self.input_mean[: self.nb_bins]
         x = x * self.input_scale[: self.nb_bins]
 
-        # to (nb_frames*nb_samples, nb_channels*nb_bins)
-        # and encode to (nb_frames*nb_samples, hidden_size)
-        x = x.reshape(nb_frames, nb_samples, self.hidden_size)
+        print(f'x.shape: {x.shape}')
+        x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
+        print(f'x.shape: {x.shape}')
 
-        # apply 3-layers of stacked LSTM
-        rnn_out, _ = self.rnn(x)
+        for layer in self.encoder:
+            x = layer(x)
 
-        # lstm skip connection
-        x = torch.cat([x, rnn_out], -1)
-        x = x.reshape(-1, x.shape[-1])
+        for layer in self.decoder:
+            x = layer(x)
 
-        # second dense stage + batch norm
-        x = self.fc1(x)
-        x = self.act1(x)
-        x = self.bn1(x)
+        x = x.permute(0, 1, 3, 2, 4)
 
-        # reshape back to original dim
-        x = x.reshape(nb_frames, nb_samples*nb_channels, self.nb_bins)
-
-        # permute back to (nb_samples, nb_channels, nb_bins, nb_frames)
-        x = x.permute(1, 2, 0)
-
-        x = self.mup(x, pool_inds, output_size=unpool_size)
-
-        print(f'unpooled: {x.shape}')
-
-        # refine with final linear layer
-        x = self.fc2(x.reshape(-1, nb_channels*self.nb_bins))
-        print(f'refined: {x.shape}')
-
-        x = x.reshape(nb_samples, nb_channels, nb_bins, -1, self.M)
-
-        print(f'mix: {mix.shape}')
-        print(f'x: {x.shape}')
-
-        # relu because output is positive
         # multiply mix by learned mask above
-        return self.act2(x) * mix
+        #return x * mix
+        return x
 
 
 class Separator(nn.Module):

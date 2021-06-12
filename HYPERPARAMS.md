@@ -1,5 +1,7 @@
 ## Choosing best NSGT
 
+# sllen <= 8192
+
 2 runs with 2 random seeds:
 
 ```
@@ -21,32 +23,21 @@ other:  13.946025865654466      ('bark', 64, 89.99999999999972, 26.2000000000000
 vocals:         9.61874212410149      ('bark', 103, 28.299999999999933, 48.6, 7048)
 ```
 
-## Refined full eval, considering coefficients
-
-Best overall:
+# sllen <= 4096
 
 ```
-(umx-gpu) sevagh:open-unmix-nsgt $ python scripts/hyperparam_search.py --seq-dur-min=60 --seq-dur-max=90 --seq-reps=2 --n-random-tracks=12 --fscale='mel' --fmins=91.6 --bins=113 --gamma=0 --sllen 7432 --random-seed=7 --single
-using 12 random tracks from MUSDB18-HQ train set validation split
-Parameter to evaluate:
-        {'scale': 'mel', 'bins': 113, 'fmin': 91.6, 'gamma': 0.0, 'sllen': 7432}
-nsgt params:
-        nmel-113-91.60-7432
-        113 f bins, 228 m bins
-        25764 total dim
-bass, drums, vocals, other sdr! 7.09 8.73 10.57 6.76
-total sdr: 8.29
+bass:   6.386422226148837       ('bark', 56, 120.6999999999996, 33.9, 3872)
+drums:  8.860784311537326       ('bark', 56, 120.6999999999996, 33.9, 3872)
+other:  7.620889520246537       ('mel', 59, 80.29999999999976, 23.3, 3888)
+vocals:         7.870184351437417       ('mel', 61, 116.79999999999961, 54.0, 3896)
 ```
 
-### Complexity of using multiple NSGTs
+# sllen <= 2048
 
-Is it worth it to use 1 different NSGT per target? Hypothetically each optimal NSGT might boost the SDR score.
-
-Supporting it in the code isn't such a big deal either, using phasemix inversion you don't need the same tf transform for 4 targets.
-
-Leave this for "future tweaks"
-
-Concern about overfitting, etc. Single transform it is. Compared to previous "best" oracles via bayesian optimization:
-
-* MPI: 256 bins, 22.8 Hz fmin, 17592 slle
-* IRM: 125 bins, 78.0 Hz fmin, 9216 sllen
+```
+best scores
+bass:   5.486964611360233       ('mel', 32, 115.49999999999963, 92.0, 2016)
+drums:  8.133625758111135       ('mel', 32, 115.49999999999963, 92.0, 2016)
+other:  7.405963393680095       ('mel', 32, 115.49999999999963, 92.0, 2016)
+vocals:         6.542029765645169       ('bark', 30, 38.4999999999999, 69.5, 2012)
+```
