@@ -71,19 +71,25 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def assemble_coefs(cqt, ncoefs):
+def assemble_coefs_np(cqt, ncoefs):
     """
     Build a sequence of blocks out of incoming overlapping CQT slices
     """
+    print(f'cqt.shape: {cqt.shape}')
     cqt = iter(cqt)
     cqt0 = next(cqt)
     cq0 = np.asarray(cqt0).T
+    print(f'cq0: {cq0.shape}')
     shh = cq0.shape[0]//2
+    print(f'shh: {shh}')
     out = np.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype)
+    print(f'out: {out.shape}')
     
     fr = 0
     sh = max(0, min(shh, ncoefs-fr))
 
+    print(f'out: {out.shape}, cq0: {cq0.shape}, sh: {sh}')
+    print(f'out[fr:fr+sh]: {out[fr:fr+sh].shape}, cq0[sh:]: {cq0[sh:].shape}, sh: {sh}')
     out[fr:fr+sh] = cq0[sh:] # store second half
 
     # add up slices
@@ -122,7 +128,7 @@ def ideal_mixphase(track, tf, plot=False):
         X = X.mean(1, keepdim=False)
         print(f'X.shape: {X.shape}')
 
-        mp_kern = 100
+        mp_kern = 200
         mp = torch.nn.MaxPool1d(mp_kern, mp_kern, return_indices=True)
 
         X_temporal_pooled, inds = mp(X)
@@ -161,7 +167,7 @@ def ideal_mixphase(track, tf, plot=False):
         axs[2].plot(X_3.T)
         axs[2].set_title('reconstructed from maxpool')
 
-        coefs = assemble_coefs(X_4, int(N*tf.nsgt.coef_factor))
+        coefs = assemble_coefs_np(X_4, int(N*tf.nsgt.coef_factor))
         print(f'coefs.shape: {coefs.shape}')
         # downmix coefs to mono
         coefs = coefs.mean(-1, keepdims=False)
