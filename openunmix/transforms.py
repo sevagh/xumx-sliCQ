@@ -37,7 +37,6 @@ class NSGTBase(nn.Module):
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fs/2
-        self.scale = 100.
 
         self.scl = None
         if scale == 'bark':
@@ -133,7 +132,7 @@ class NSGT_SL(nn.Module):
         # unpack batch
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
 
-        return self.nsgt.scale*nsgt_f
+        return nsgt_f
 
 
 class INSGT_SL(nn.Module):
@@ -153,8 +152,6 @@ class INSGT_SL(nn.Module):
 
 
     def forward(self, X: Tensor, length: int) -> Tensor:
-        X /= self.nsgt.scale
-
         Xshape = len(X.shape)
 
         X = torch.view_as_complex(X)

@@ -38,23 +38,20 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        self.conv1 = 25
-        self.conv2 = 55
-
         self.encoder = nn.ModuleList([
-            Conv3d(nb_channels, self.conv1, (11, 11, 42)),
-            BatchNorm3d(self.conv1),
+            Conv3d(nb_channels, 25, (11, 42, 11), stride=(1, 1, 4)),
+            BatchNorm3d(25),
             ReLU(),
-            Conv3d(self.conv1, self.conv2, (11, 11, 22)),
-            BatchNorm3d(self.conv2),
+            Conv3d(25, 55, (11, 22, 11), stride=(2, 2, 4)),
+            BatchNorm3d(55),
             ReLU(),
         ])
 
         self.decoder = nn.ModuleList([
-            ConvTranspose3d(self.conv2, self.conv1, (11, 11, 22)),
-            BatchNorm3d(self.conv1),
+            ConvTranspose3d(55, 25, (11, 42, 11), stride=(2, 2, 4), output_padding=(0, 0, 3)),
+            BatchNorm3d(25),
             ReLU(),
-            ConvTranspose3d(self.conv1, nb_channels, (11, 11, 42)),
+            ConvTranspose3d(25, nb_channels, (11, 22, 11), stride=(1, 1, 4), output_padding=(0, 0, 1)),
             BatchNorm3d(nb_channels),
             Sigmoid(),
         ])
@@ -102,6 +99,8 @@ class OpenUnmix(nn.Module):
         x = x * self.input_scale[: self.nb_bins]
 
         x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
+        #print(f'convolving slicq: {x.shape}')
+        #input('press to continue')
 
         for layer in self.encoder:
             x = layer(x)
