@@ -15,6 +15,7 @@ import torchaudio
 import torchinfo
 from contextlib import contextmanager
 from torch.autograd import Variable
+import matplotlib.pyplot as plt
 
 from openunmix import data
 from openunmix import model
@@ -24,19 +25,62 @@ from openunmix import filtering
 
 tqdm.monitor_interval = 0
 
+# hack for plotting loss
+loss_list = []
 
-def train(args, unmix, encoder, device, train_sampler, optimizer):
+
+def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=None):
     losses = utils.AverageMeter()
     unmix.train()
     pbar = tqdm.tqdm(train_sampler, disable=args.quiet)
+
     for x, y in pbar:
         pbar.set_description("Training batch")
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         X = encoder(x)
-        Y_hat = unmix(X)
         Y = encoder(y)
+        Y_hat = unmix(X)
         loss = torch.nn.functional.mse_loss(Y_hat, Y)
+
+        if fig is not None and axs is not None:
+            loss_list.append(loss.item())
+
+            mix_plot = torch.squeeze(X, dim=0)
+            mix_plot = mix_plot.mean(dim=0, keepdim=False)
+            mix_plot = mix_plot.reshape(-1, mix_plot.shape[-1])
+            mix_plot = mix_plot.detach().cpu().numpy()
+
+            pred_plot = torch.squeeze(Y_hat, dim=0)
+            pred_plot = pred_plot.mean(dim=0, keepdim=False)
+            pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
+            pred_plot = pred_plot.detach().cpu().numpy()
+
+            axs[0, 0].clear()
+            #axs[1, 0].clear()
+            axs[0, 1].clear()
+            axs[1, 1].clear()
+
+            axs[0, 0].plot(mix_plot)
+            axs[0, 0].set_title('input mixed slicq')
+
+            axs[1, 0].plot(loss_list)
+            axs[1, 0].set_title('MSE loss')
+
+            axs[0, 1].plot(pred_plot)
+            axs[0, 1].set_title('predicted')
+
+            gt_plot = torch.squeeze(Y, dim=0)
+            gt_plot = gt_plot.mean(dim=0, keepdim=False)
+            gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
+            gt_plot = gt_plot.detach().cpu().numpy()
+
+            axs[1, 1].plot(gt_plot)
+            axs[1, 1].set_title('ground truth slicq')
+
+            plt.draw()
+            fig.canvas.flush_events()
+
         loss.backward()
         optimizer.step()
         losses.update(loss.item(), Y.size(1))
@@ -47,7 +91,9 @@ def valid(args, unmix, encoder, device, valid_sampler):
     losses = utils.AverageMeter()
     unmix.eval()
     with torch.no_grad():
-        for x, y in valid_sampler:
+        pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
+        for x, y in pbar:
+            pbar.set_description("Validation batch")
             x, y = x.to(device), y.to(device)
             X = encoder(x)
             Y_hat = unmix(X)
@@ -299,6 +345,7 @@ def main():
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
+        info=args.debug,
     ).to(device)
 
     slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
@@ -346,10 +393,18 @@ def main():
         train_times = []
         best_epoch = 0
 
+    fig = None
+    axs = None
+    if args.debug:
+        fig, axs = plt.subplots(2, 2)
+        fig.suptitle('umx-sliCQ debug')
+        plt.ion()
+        plt.show()
+
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss = train(args, unmix, encoder, device, train_sampler, optimizer)
+        train_loss = train(args, unmix, encoder, device, train_sampler, optimizer, fig=fig, axs=axs)
         valid_loss = valid(args, unmix, encoder, device, valid_sampler)
         scheduler.step(valid_loss)
         train_losses.append(train_loss)

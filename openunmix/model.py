@@ -4,11 +4,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm3d, Conv3d, ConvTranspose3d
+from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
 import numpy as np
+import logging
 
 eps = 1.e-10
 
@@ -32,28 +33,37 @@ class OpenUnmix(nn.Module):
         nb_channels=2,
         input_mean=None,
         input_scale=None,
+        info=False,
     ):
         super(OpenUnmix, self).__init__()
 
         self.nb_bins = nb_bins
         self.M = M
 
+        conv_hidden_1 = 15
+        conv_hidden_2 = 15
+
+        freq_filter_1 = 7
+        time_filter_1 = 17
+
+        freq_filter_2 = 7
+        time_filter_2 = 17
+
         self.encoder = nn.ModuleList([
-            Conv3d(nb_channels, 25, (11, 42, 11), stride=(1, 1, 4)),
-            BatchNorm3d(25),
+            Conv2d(nb_channels, conv_hidden_1, (freq_filter_1, time_filter_1)),
+            BatchNorm2d(conv_hidden_1),
             ReLU(),
-            Conv3d(25, 55, (11, 22, 11), stride=(2, 2, 4)),
-            BatchNorm3d(55),
+            Conv2d(conv_hidden_1, conv_hidden_2, (freq_filter_2, time_filter_2)),
+            BatchNorm2d(conv_hidden_2),
             ReLU(),
         ])
 
         self.decoder = nn.ModuleList([
-            ConvTranspose3d(55, 25, (11, 42, 11), stride=(2, 2, 4), output_padding=(0, 0, 3)),
-            BatchNorm3d(25),
+            ConvTranspose2d(conv_hidden_2, conv_hidden_1, (freq_filter_2, time_filter_2)),
+            BatchNorm2d(conv_hidden_1),
             ReLU(),
-            ConvTranspose3d(25, nb_channels, (11, 22, 11), stride=(1, 1, 4), output_padding=(0, 0, 1)),
-            BatchNorm3d(nb_channels),
-            Sigmoid(),
+            ConvTranspose2d(conv_hidden_1, nb_channels, (freq_filter_1, time_filter_1)),
+            ReLU(),
         ])
 
         if input_mean is not None:
@@ -68,6 +78,11 @@ class OpenUnmix(nn.Module):
 
         self.input_mean = Parameter(input_mean)
         self.input_scale = Parameter(input_scale)
+
+        self.info = info
+        if self.info:
+            logging.basicConfig(level=logging.INFO)
+
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -85,7 +100,11 @@ class OpenUnmix(nn.Module):
             Tensor: filtered spectrogram of shape
                 `(nb_samples, nb_channels, nb_bins, nb_frames)`
         """
+        if self.info:
+            print()
+
         mix = x.detach().clone()
+        logging.info(f'0. mix shape: {mix.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_frames, nb_m_bins = x.shape
 
@@ -94,25 +113,36 @@ class OpenUnmix(nn.Module):
         # permute so that batch is last for lstm
         x = x.permute(3, 0, 1, 2)
 
+        logging.info(f'\n0. {x.shape}')
+
         # shift and scale input to mean=0 std=1 (across all bins)
         x = x + self.input_mean[: self.nb_bins]
         x = x * self.input_scale[: self.nb_bins]
 
-        x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
-        #print(f'convolving slicq: {x.shape}')
-        #input('press to continue')
+        logging.info(f'1. POST-SCALE {x.shape}')
 
-        for layer in self.encoder:
+        x = x.permute(1, 2, 3, 0)
+
+        logging.info(f'2. PRE-ENCODER x.shape: {x.shape}')
+        for i, layer in enumerate(self.encoder):
+            sh1 = x.shape
             x = layer(x)
+            sh2 = x.shape
+            logging.info(f'\t 2-{i} ENCODER {sh1} -> {sh2}')
 
+        logging.info(f'3. PRE-DECODER {x.shape}')
         for layer in self.decoder:
+            sh1 = x.shape
             x = layer(x)
+            sh2 = x.shape
+            logging.info(f'\t 3-{i} DECODER {sh1} -> {sh2}')
 
+        logging.info(f'4. PREDICTED {x.shape}')
+        x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
         x = x.permute(0, 1, 3, 2, 4)
 
-        # multiply mix by learned mask above
-        return x * mix
-        #return x
+        logging.info(f'5. RET {x.shape}')
+        return x
 
 
 class Separator(nn.Module):
@@ -145,7 +175,6 @@ class Separator(nn.Module):
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
         seq_dur: float = 6.0,
-        seq_batch: int = 32,
         device: str = "cpu",
     ):
         super(Separator, self).__init__()
@@ -169,8 +198,7 @@ class Separator(nn.Module):
         self.target_models = nn.ModuleDict(target_models)
         # adding till https://github.com/pytorch/pytorch/issues/38963
         self.nb_targets = len(self.target_models)
-        self.chunk_size_samples = int(seq_dur*sample_rate)
-        self.seq_batch = seq_batch
+        self.seq_dur = seq_dur
         # get the sample_rate as the sample_rate of the first model
         # (tacitly assume it's the same for all targets)
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
@@ -198,49 +226,39 @@ class Separator(nn.Module):
         nb_samples = audio.shape[0]
         N = audio.shape[-1]
 
-        # getting the STFT of mix:
-        # (nb_samples, nb_channels, nb_bins, nb_frames, 2)
+        estimates = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
 
-        chunks_ceil = np.ceil(N/(self.seq_batch*self.chunk_size_samples))
-        pad_last = int(chunks_ceil*self.seq_batch*self.chunk_size_samples) - N
-        audio = torch.nn.functional.pad(audio, (0, pad_last))
-        audio_segs = audio.reshape(-1, nb_samples*self.seq_batch, self.nb_channels, self.chunk_size_samples)
+        for j, (target_name, target_module) in enumerate(self.target_models.items()):
+            print(f'separating {target_name}')
 
-        estimates = []
+            nsgt = self.nsgts[target_name]['nsgt']
+            insgt = self.nsgts[target_name]['insgt']
 
-        for audio_seg in audio_segs:
-            seg_estimates = torch.zeros(audio_seg.shape + (nb_sources,), dtype=audio_seg.dtype, device=self.device)
-            for j, (target_name, target_module) in enumerate(self.target_models.items()):
-                print(f'separating {target_name}')
+            slicq_shape = nsgt.nsgt.predict_input_size(1, 2, self.seq_dur)
+            seq_batch = slicq_shape[-2]
 
-                nsgt = self.nsgts[target_name]['nsgt']
-                insgt = self.nsgts[target_name]['insgt']
+            X = nsgt(audio)
+            Xmag = self.complexnorm(X)
 
-                X = nsgt(audio_seg)
+            Xmagsegs = torch.split(Xmag, seq_batch, dim=3)
+            Ymagsegs = []
 
-                Xmag = self.complexnorm(X)
-
+            for Xmagseg in Xmagsegs:
                 # apply current model to get the source magnitude spectrogram
                 #Xmag_segs = torch.split(Xmag, 
-                Ymag = target_module(Xmag.detach().clone())
+                Ymagseg = target_module(Xmagseg.detach().clone())
+                Ymagsegs.append(Ymagseg)
 
-                Y = phasemix_sep(X, Ymag)
-                y = insgt(Y, audio_seg.shape[-1])
+            Ymag = torch.cat(Ymagsegs, dim=3)
 
-                seg_estimates[..., j] = y
+            Y = phasemix_sep(X, Ymag)
+            y = insgt(Y, audio.shape[-1])
 
-            estimates.append(seg_estimates)
-
-        est_segs = torch.cat([torch.unsqueeze(est, dim=0) for est in estimates], dim=0)
-        est_segs = est_segs.reshape(nb_samples, self.nb_channels, N+pad_last, -1)
+            estimates[..., j] = y
 
         # getting to (nb_samples, nb_targets, nb_channels, nb_samples)
-        ests = est_segs.permute(0, 3, 1, 2).contiguous()
-
-        # crop the padding
-        ests  = ests[..., : N]
-
-        return ests
+        estimates = estimates.permute(0, 3, 1, 2).contiguous()
+        return estimates
 
     def to_dict(self, estimates: Tensor, aggregate_dict: Optional[dict] = None) -> dict:
         """Convert estimates as stacked tensor to dictionary

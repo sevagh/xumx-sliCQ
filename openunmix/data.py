@@ -297,6 +297,12 @@ def load_datasets(
             default=False,
             help="loads wav instead of STEMS",
         )
+        parser.add_argument(
+            "--fixed-start",
+            action="store_true",
+            default=False,
+            help="fixed start of song (for overfit debugging)",
+        )
         parser.add_argument("--samples-per-track", type=int, default=64)
         parser.add_argument("--valid-samples-per-track", type=int, default=1)
         parser.add_argument("--source-augmentations", type=str, nargs="+")
@@ -309,6 +315,7 @@ def load_datasets(
             "target": args.target,
             "download": args.root is None,
             "seed": args.seed,
+            "fixed_start": args.fixed_start,
         }
 
         source_augmentations = aug_from_str(args.source_augmentations)
@@ -318,7 +325,7 @@ def load_datasets(
             samples_per_track=args.samples_per_track,
             seq_duration=args.seq_dur,
             source_augmentations=source_augmentations,
-            random_track_mix=False,#True,
+            random_track_mix=True,
             **dataset_kwargs,
         )
 
@@ -782,6 +789,7 @@ class MUSDBDataset(UnmixDataset):
         samples_per_track: int = 64,
         source_augmentations: Optional[Callable] = lambda audio: audio,
         random_track_mix: bool = False,
+        fixed_start: bool = False,
         seed: int = 42,
         *args,
         **kwargs,
@@ -836,6 +844,7 @@ class MUSDBDataset(UnmixDataset):
         self.samples_per_track = samples_per_track
         self.source_augmentations = source_augmentations
         self.random_track_mix = random_track_mix
+        self.fixed_start = fixed_start
         self.mus = musdb.DB(
             root=root,
             is_wav=is_wav,
@@ -873,8 +882,13 @@ class MUSDBDataset(UnmixDataset):
                 dur = min(track.duration, self.seq_duration)
 
                 track.chunk_duration = dur
-                # set random start position
-                track.chunk_start = random.uniform(0, track.duration - dur)
+
+                if not self.fixed_start:
+                    # set random start position
+                    track.chunk_start = random.uniform(0, track.duration - dur)
+                else:
+                    # start at 10 for debugging purposes
+                    track.chunk_start = 10
                 # load source audio and apply time domain source_augmentations
 
                 audio = torch.as_tensor(track.sources[source].audio.T, dtype=torch.float32)
