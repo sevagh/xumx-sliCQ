@@ -299,13 +299,14 @@ def load_datasets(
         )
         parser.add_argument(
             "--fixed-start",
-            action="store_true",
-            default=False,
-            help="fixed start of song (for overfit debugging)",
+            type=int,
+            default=-1,
+            help="supply fixed start (in s) of song (-1 for random start)",
         )
         parser.add_argument("--samples-per-track", type=int, default=64)
         parser.add_argument("--valid-samples-per-track", type=int, default=1)
         parser.add_argument("--source-augmentations", type=str, nargs="+")
+        parser.add_argument("--random-track-mix", action="store_true", default=False, help="draw sources from random track mix")
 
         args = parser.parse_args()
         dataset_kwargs = {
@@ -325,7 +326,7 @@ def load_datasets(
             samples_per_track=args.samples_per_track,
             seq_duration=args.seq_dur,
             source_augmentations=source_augmentations,
-            random_track_mix=True,
+            random_track_mix=args.random_track_mix,
             **dataset_kwargs,
         )
 
@@ -789,7 +790,7 @@ class MUSDBDataset(UnmixDataset):
         samples_per_track: int = 64,
         source_augmentations: Optional[Callable] = lambda audio: audio,
         random_track_mix: bool = False,
-        fixed_start: bool = False,
+        fixed_start: int = -1,
         seed: int = 42,
         *args,
         **kwargs,
@@ -883,12 +884,12 @@ class MUSDBDataset(UnmixDataset):
 
                 track.chunk_duration = dur
 
-                if not self.fixed_start:
+                if self.fixed_start < 0:
                     # set random start position
                     track.chunk_start = random.uniform(0, track.duration - dur)
                 else:
-                    # start at 10 for debugging purposes
-                    track.chunk_start = 10
+                    # start at fixed position for debugging purposes
+                    track.chunk_start = self.fixed_start
                 # load source audio and apply time domain source_augmentations
 
                 audio = torch.as_tensor(track.sources[source].audio.T, dtype=torch.float32)

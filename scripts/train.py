@@ -16,6 +16,7 @@ import torchinfo
 from contextlib import contextmanager
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
+from torch_lr_finder import LRFinder, TrainDataLoaderIter
 
 from openunmix import data
 from openunmix import model
@@ -28,8 +29,21 @@ tqdm.monitor_interval = 0
 # hack for plotting loss
 loss_list = []
 
+
+class UnmixNSGTizer(TrainDataLoaderIter):
+    def __init__(self, data_loader, encoder):
+        super().__init__(data_loader)
+        self.encoder = encoder
+
+    def inputs_labels_from_batch(self, batch_data):
+        x, y = batch_data
+        X = self.encoder(x)
+        Y = self.encoder(y)
+        return X, Y
+
+
 #@profile
-def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=None):
+def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=None, axs=None):
     losses = utils.AverageMeter()
     unmix.train()
     pbar = tqdm.tqdm(train_sampler, disable=args.quiet)
@@ -41,7 +55,7 @@ def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=
         X = encoder(x)
         Y = encoder(y)
         Y_hat = unmix(X)
-        loss = torch.nn.functional.mse_loss(Y_hat, Y)
+        loss = criterion(Y_hat, Y)
 
         if fig is not None and axs is not None:
             loss_list.append(loss.item())
@@ -91,7 +105,7 @@ def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=
     return losses.avg
 
 
-def valid(args, unmix, encoder, device, valid_sampler):
+def valid(args, unmix, encoder, device, valid_sampler, criterion):
     losses = utils.AverageMeter()
     unmix.eval()
     with torch.no_grad():
@@ -102,7 +116,7 @@ def valid(args, unmix, encoder, device, valid_sampler):
             X = encoder(x)
             Y_hat = unmix(X)
             Y = encoder(y)
-            loss = torch.nn.functional.mse_loss(Y_hat, Y)
+            loss = criterion(Y_hat, Y)
             losses.update(loss.item(), Y.size(1))
         return losses.avg
 
@@ -218,7 +232,7 @@ def main():
     parser.add_argument(
         "--valid-seq-dur",
         type=float,
-        default=30.0,
+        default=-1.0,
         help="Sequence duration in seconds for limiting full track size for validation",
     )
     parser.add_argument(
@@ -253,6 +267,12 @@ def main():
     )
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
+    )
+    parser.add_argument(
+        "--find-lr",
+        action="store_true",
+        default=False,
+        help="Run lr finding process",
     )
     parser.add_argument(
         "--skip-statistics",
@@ -318,7 +338,6 @@ def main():
         train_dataset, batch_size=args.batch_size, shuffle=True, **dataloader_kwargs
     )
 
-    # use batch/2 validation samples
     valid_sampler = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_batch_size, **dataloader_kwargs)
 
     # need to globally configure an NSGT object to peek at its params to set up the neural network
@@ -368,6 +387,15 @@ def main():
     torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    criterion = torch.nn.MSELoss()
+
+    if args.find_lr:
+        train_sampler_encoded = UnmixNSGTizer(train_sampler, encoder)
+        lr_finder = LRFinder(unmix, optimizer, criterion, device)
+
+        lr_finder.range_test(train_sampler_encoded, end_lr=100, num_iter=1000)
+        lr_finder.plot()
+        return
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -420,8 +448,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss = train(args, unmix, encoder, device, train_sampler, optimizer, fig=fig, axs=axs)
-        valid_loss = valid(args, unmix, encoder, device, valid_sampler)
+        train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=fig, axs=axs)
+        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)

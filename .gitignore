@@ -101,3 +101,5 @@ Temporary Items
 *.chkpnt
 *.json
 *.pth
+
+*.png
