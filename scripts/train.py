@@ -28,7 +28,7 @@ tqdm.monitor_interval = 0
 # hack for plotting loss
 loss_list = []
 
-
+#@profile
 def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=None):
     losses = utils.AverageMeter()
     unmix.train()
@@ -57,7 +57,7 @@ def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=
             pred_plot = pred_plot.detach().cpu().numpy()
 
             axs[0, 0].clear()
-            #axs[1, 0].clear()
+            axs[1, 0].clear()
             axs[0, 1].clear()
             axs[1, 1].clear()
 
@@ -78,12 +78,16 @@ def train(args, unmix, encoder, device, train_sampler, optimizer, fig=None, axs=
             axs[1, 1].plot(gt_plot)
             axs[1, 1].set_title('ground truth slicq')
 
+            [[ax_.grid() for ax_ in ax] for ax in axs]
+
             plt.draw()
             fig.canvas.flush_events()
 
         loss.backward()
         optimizer.step()
-        losses.update(loss.item(), Y.size(1))
+        li = loss.item()
+        Ys = Y.size(1)
+        losses.update(li, Ys)
     return losses.avg
 
 
@@ -251,10 +255,22 @@ def main():
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
     )
     parser.add_argument(
-        "--debug",
+        "--skip-statistics",
         action="store_true",
         default=False,
-        help="Speed up training init for dev purposes",
+        help="Skip dataset statistics calculation for dev purposes",
+    )
+    parser.add_argument(
+        "--debug-plots",
+        action="store_true",
+        default=False,
+        help="Display plots of training process per epoch",
+    )
+    parser.add_argument(
+        "--print-shape",
+        action="store_true",
+        default=False,
+        help="Print shapes of data passing through network",
     )
 
     # Misc Parameters
@@ -331,7 +347,7 @@ def main():
     with open(Path(target_path, "separator.json"), "w") as outfile:
         outfile.write(json.dumps(separator_conf, indent=4, sort_keys=True))
 
-    if args.model or args.debug:
+    if args.model or args.skip_statistics:
         scaler_mean = None
         scaler_std = None
     else:
@@ -345,7 +361,7 @@ def main():
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
-        info=args.debug,
+        info=args.print_shape,
     ).to(device)
 
     slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
@@ -395,7 +411,7 @@ def main():
 
     fig = None
     axs = None
-    if args.debug:
+    if args.debug_plots:
         fig, axs = plt.subplots(2, 2)
         fig.suptitle('umx-sliCQ debug')
         plt.ion()

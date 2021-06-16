@@ -5,13 +5,13 @@ channels:
   - pytorch
 
 dependencies:
-  - python=3.6
-  - numpy=1.18
-  - scipy=1.4
-  - pytorch==1.7.0
-  - torchaudio==0.7.0
-  - cudatoolkit=11.0
-  - scikit-learn=0.22
+  - python=3.9
+  - numpy
+  - scipy
+  - pytorch==1.9
+  - torchaudio
+  - cudatoolkit=11
+  - scikit-learn
   - tqdm
   - libsndfile
   - ffmpeg
@@ -24,3 +24,4 @@ dependencies:
     - gitpython
     - torchinfo
     - matplotlib
+    - line_profiler

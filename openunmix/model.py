@@ -41,12 +41,11 @@ class OpenUnmix(nn.Module):
         self.M = M
 
         # TODO support causality with causal convolutions
-        channels = [nb_channels, 25, 75]
-        filters = [(55, 13), (13, 13)]
-        strides = [(1, 1), (1, 1)]
-        dilations = [(1, 2), (1, 8)]
-        output_paddings = [(0, 0), (0, 0)]
-        self.skip_conns = [(2, 3)]
+        channels = [nb_channels, 25, 55, 75]
+        filters = [(13, 13), (11, 11), (9, 9)]
+        strides = [(1, 1), (1, 1), (1, 1)]
+        dilations = [(1, 1), (1, 4), (1, 8)]
+        output_paddings = [(0, 0), (0, 0), (0, 0)]
 
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
@@ -62,8 +61,6 @@ class OpenUnmix(nn.Module):
                 ReLU(),
             ])
 
-        self.encoder.append(Dropout(p=0.1))
-
         for i in range(layers,1,-1):
             self.decoder.extend([
                 ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1]),
@@ -72,10 +69,10 @@ class OpenUnmix(nn.Module):
             ])
 
         # last layer has special activation
-        self.decoder.append(ConvTranspose2d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0]))
-        self.decoder.append(BatchNorm2d(channels[0]))
+        self.decoder.append(ConvTranspose2d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0]))
+        #self.decoder.append(BatchNorm2d(channels[0]))
         self.decoder.append(Sigmoid())
-        self.mask = True # apply prediction as a mask on the input sliCQ
+        self.mask = True
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -130,24 +127,16 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'5. PRE-ENCODER {x.shape}')
 
-        skip_conns = []
-
         for i, layer in enumerate(self.encoder):
             sh1 = x.shape
             x = layer(x)
             sh2 = x.shape
             logging.info(f'\t5-{i} ENCODER {sh1} -> {sh2}')
-            for sc in self.skip_conns:
-                if i == sc[0]:
-                    skip_conns.append(x.detach().clone())
 
         post_enc_shape = x.shape
         logging.info(f'6. POST-ENCODER {x.shape}')
 
         for layer in self.decoder:
-            for sc in self.skip_conns[::-1]:
-                if i == sc[-1]:
-                    x += skip_conns.pop()
             sh1 = x.shape
             x = layer(x)
             sh2 = x.shape

@@ -66,6 +66,7 @@ def starzip(iterables):
     return [inner(itr, i) for i,itr in enumerate(tee(iterables, len(it)))]
 
 
+#@profile
 def chnmap_forward(gen, seq, device="cuda"):
     chns = starzip(seq) # returns a list of generators (one for each channel)
 
