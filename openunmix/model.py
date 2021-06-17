@@ -30,6 +30,7 @@ class OpenUnmix(nn.Module):
         self,
         nb_bins,
         M,
+        seq_batch,
         nb_channels=2,
         input_mean=None,
         input_scale=None,
@@ -56,20 +57,20 @@ class OpenUnmix(nn.Module):
 
         for i in range(layers):
             self.encoder.extend([
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i]),
+                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
                 BatchNorm2d(channels[i+1]),
                 ReLU(),
             ])
 
         for i in range(layers,1,-1):
             self.decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1]),
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
                 BatchNorm2d(channels[i-1]),
                 ReLU(),
             ])
 
         # last layer has special activation
-        self.decoder.append(ConvTranspose2d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0]))
+        self.decoder.append(ConvTranspose2d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0], bias=False))
         #self.decoder.append(BatchNorm2d(channels[0]))
         self.decoder.append(Sigmoid())
         self.mask = True
@@ -91,6 +92,8 @@ class OpenUnmix(nn.Module):
         if self.info:
             logging.basicConfig(level=logging.INFO)
 
+        # chunked for inputs longer than the seq
+        self.seq_batch = seq_batch
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -99,12 +102,25 @@ class OpenUnmix(nn.Module):
             p.requires_grad = False
         self.eval()
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, xlong: Tensor) -> Tensor:
         if self.info:
             print()
 
-        mix = x.detach().clone()
+        logging.info(f'-3. {xlong.shape}')
+        mix = xlong.detach().clone()
         logging.info(f'0. mix shape: {mix.shape}')
+
+        pad = int(np.ceil(xlong.shape[3]/self.seq_batch))*self.seq_batch - xlong.shape[3]
+        xlong = F.pad(xlong, (0, 0, 0, pad), mode='constant', value=0)
+
+        x = torch.cat([torch.unsqueeze(x_, dim=0) for x_ in torch.split(xlong, self.seq_batch, dim=3)])
+        logging.info(f'-2. {x.shape}')
+        nb_splits = x.shape[0]
+        nb_samples_orig = x.shape[1]
+
+        # stack splits as samples
+        x = x.reshape(x.shape[0]*x.shape[1], *x.shape[2:])
+        logging.info(f'-1. {x.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
@@ -148,11 +164,17 @@ class OpenUnmix(nn.Module):
         x = x.permute(0, 1, 3, 2, 4)
 
         logging.info(f'8. RET {x.shape}')
+        x = x.reshape(nb_samples_orig, nb_channels, nb_f_bins, nb_slices*nb_splits, nb_m_bins)
+        logging.info(f'9. RET {x.shape}')
+        if pad > 0:
+            x = x[..., : -pad, :]
+        logging.info(f'10. RET PAD CROPPED {x.shape}')
+
+        logging.info(f'10. mix {mix.shape}')
 
         if self.mask:
-            return x*mix
+            x = x*mix
 
-        # return magnitude estimate directly
         return x
 
 

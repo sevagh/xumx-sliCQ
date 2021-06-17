@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 from torch_lr_finder import LRFinder, TrainDataLoaderIter
+import auraloss
 
 from openunmix import data
 from openunmix import model
@@ -26,14 +27,17 @@ from openunmix import filtering
 
 tqdm.monitor_interval = 0
 
-# hack for plotting loss
-loss_list = []
+# hack for plotting loss in realtime
+loss_list_train = []
+loss_list_valid = []
 
 
+# TODO fix this
 class UnmixNSGTizer(TrainDataLoaderIter):
     def __init__(self, data_loader, encoder):
         super().__init__(data_loader)
-        self.encoder = encoder
+        nsgt, _, cnorm = encoder
+        self.encoder = torch.nn.Sequential(nsgt, cnorm)
 
     def inputs_labels_from_batch(self, batch_data):
         x, y = batch_data
@@ -44,6 +48,9 @@ class UnmixNSGTizer(TrainDataLoaderIter):
 
 #@profile
 def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=None, axs=None):
+    # unpack encoder object
+    nsgt, insgt, cnorm = encoder
+
     losses = utils.AverageMeter()
     unmix.train()
     pbar = tqdm.tqdm(train_sampler, disable=args.quiet)
@@ -52,60 +59,63 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig
         pbar.set_description("Training batch")
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
-        X = encoder(x)
-        Y = encoder(y)
-        Y_hat = unmix(X)
-        loss = criterion(Y_hat, Y)
+        X = nsgt(x)
+        Xmag = cnorm(X)
+
+        Ymag_hat = unmix(Xmag)
+        Ymag = cnorm(nsgt(y))
+
+        # complex nsgt after phasemix inversion
+        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+        y_hat = insgt(Y_hat, y.shape[-1])
+
+        loss = criterion(y_hat, y)
 
         if fig is not None and axs is not None:
-            loss_list.append(loss.item())
+            loss_list_train.append(loss.item())
 
-            mix_plot = torch.squeeze(X, dim=0)
+            mix_plot = torch.squeeze(Xmag, dim=0)
             mix_plot = mix_plot.mean(dim=0, keepdim=False)
             mix_plot = mix_plot.reshape(-1, mix_plot.shape[-1])
             mix_plot = mix_plot.detach().cpu().numpy()
 
-            pred_plot = torch.squeeze(Y_hat, dim=0)
+            pred_plot = torch.squeeze(Ymag_hat, dim=0)
             pred_plot = pred_plot.mean(dim=0, keepdim=False)
             pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
             pred_plot = pred_plot.detach().cpu().numpy()
 
             axs[0, 0].clear()
             axs[1, 0].clear()
-            axs[0, 1].clear()
-            axs[1, 1].clear()
+            axs[2, 0].clear()
+            axs[3, 0].clear()
 
             axs[0, 0].plot(mix_plot)
-            axs[0, 0].set_title('input mixed slicq')
+            axs[0, 0].set_title('TRAIN input mixed slicq')
 
-            axs[1, 0].plot(loss_list)
-            axs[1, 0].set_title('MSE loss')
+            axs[3, 0].plot(loss_list_train)
+            axs[3, 0].set_title('TRAIN SISDR loss')
 
-            axs[0, 1].plot(pred_plot)
-            axs[0, 1].set_title('predicted')
+            axs[1, 0].plot(pred_plot)
+            axs[1, 0].set_title('TRAIN pred')
 
-            gt_plot = torch.squeeze(Y, dim=0)
+            gt_plot = torch.squeeze(Ymag, dim=0)
             gt_plot = gt_plot.mean(dim=0, keepdim=False)
             gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
             gt_plot = gt_plot.detach().cpu().numpy()
 
-            axs[1, 1].plot(gt_plot)
-            axs[1, 1].set_title('ground truth slicq')
-
-            [[ax_.grid() for ax_ in ax] for ax in axs]
-
-            plt.draw()
-            fig.canvas.flush_events()
+            axs[2, 0].plot(gt_plot)
+            axs[2, 0].set_title('TRAIN ground truth slicq')
 
         loss.backward()
         optimizer.step()
-        li = loss.item()
-        Ys = Y.size(1)
-        losses.update(li, Ys)
+        losses.update(loss.item(), y.size(1))
     return losses.avg
 
 
-def valid(args, unmix, encoder, device, valid_sampler, criterion):
+def valid(args, unmix, encoder, device, valid_sampler, criterion, fig=None, axs=None):
+    # unpack encoder object
+    nsgt, insgt, cnorm = encoder
+
     losses = utils.AverageMeter()
     unmix.eval()
     with torch.no_grad():
@@ -113,16 +123,62 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
         for x, y in pbar:
             pbar.set_description("Validation batch")
             x, y = x.to(device), y.to(device)
-            X = encoder(x)
-            Y_hat = unmix(X)
-            Y = encoder(y)
-            loss = criterion(Y_hat, Y)
-            losses.update(loss.item(), Y.size(1))
+
+            X = nsgt(x)
+            Xmag = cnorm(X)
+
+            Ymag_hat = unmix(Xmag)
+            Ymag = cnorm(nsgt(y))
+
+            Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+
+            y_hat = insgt(Y_hat, y.shape[-1])
+            loss = criterion(y_hat, y)
+
+            if fig is not None and axs is not None:
+                loss_list_valid.append(loss.item())
+
+                mix_plot = torch.squeeze(Xmag, dim=0)
+                mix_plot = mix_plot.mean(dim=0, keepdim=False)
+                mix_plot = mix_plot.reshape(-1, mix_plot.shape[-1])
+                mix_plot = mix_plot.detach().cpu().numpy()
+
+                pred_plot = torch.squeeze(Ymag_hat, dim=0)
+                pred_plot = pred_plot.mean(dim=0, keepdim=False)
+                pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
+                pred_plot = pred_plot.detach().cpu().numpy()
+
+                axs[0, 1].clear()
+                axs[1, 1].clear()
+                axs[2, 1].clear()
+                axs[3, 1].clear()
+
+                axs[0, 1].plot(mix_plot)
+                axs[0, 1].set_title('VALID input mixed slicq')
+
+                axs[3, 1].plot(loss_list_valid)
+                axs[3, 1].set_title('VALID SISDR loss')
+
+                axs[1, 1].plot(pred_plot)
+                axs[1, 1].set_title('VALID pred')
+
+                gt_plot = torch.squeeze(Ymag, dim=0)
+                gt_plot = gt_plot.mean(dim=0, keepdim=False)
+                gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
+                gt_plot = gt_plot.detach().cpu().numpy()
+
+                axs[2, 1].plot(gt_plot)
+                axs[2, 1].set_title('VALID ground truth slicq')
+
+            losses.update(loss.item(), y.size(1))
         return losses.avg
 
 
 def get_statistics(args, encoder, dataset):
-    encoder = copy.deepcopy(encoder).to("cpu")
+    nsgt, _, cnorm = encoder
+    enc = torch.nn.Sequential(nsgt, cnorm)
+
+    encoder = copy.deepcopy(enc).to("cpu")
     scaler = sklearn.preprocessing.StandardScaler()
 
     dataset_scaler = copy.deepcopy(dataset)
@@ -232,8 +288,14 @@ def main():
     parser.add_argument(
         "--valid-seq-dur",
         type=float,
-        default=-1.0,
-        help="Sequence duration in seconds for limiting full track size for validation",
+        default=6.0,
+        help="Validation sequence duration in seconds" "value of <=0.0 will use full/variable length",
+    )
+    parser.add_argument(
+        "--conv-seq",
+        type=float,
+        default=1.0,
+        help="Segment size that the CDAE will train on (longer inputs will be chunked)",
     )
     parser.add_argument(
         "--fscale",
@@ -338,7 +400,7 @@ def main():
         train_dataset, batch_size=args.batch_size, shuffle=True, **dataloader_kwargs
     )
 
-    valid_sampler = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_batch_size, **dataloader_kwargs)
+    valid_sampler = torch.utils.data.DataLoader(valid_dataset, batch_size=1, **dataloader_kwargs)
 
     # need to globally configure an NSGT object to peek at its params to set up the neural network
     # e.g. M depends on the sllen which depends on fscale+fmin+fmax
@@ -351,11 +413,17 @@ def main():
         device=device
     )
 
-    nsgt, _ = transforms.make_filterbanks(
+    nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=train_dataset.sample_rate
     )
+    cnorm = model.ComplexNorm(mono=args.nb_channels == 1)
 
-    encoder = torch.nn.Sequential(nsgt, model.ComplexNorm(mono=args.nb_channels == 1)).to(device)
+    nsgt = nsgt.to(device)
+    insgt = insgt.to(device)
+    cnorm = cnorm.to(device)
+    
+    # pack the 3 pieces of the encoder/decoder
+    encoder = (nsgt, insgt, cnorm)
 
     separator_conf = {
         "sample_rate": train_dataset.sample_rate,
@@ -374,20 +442,23 @@ def main():
         scaler_mean = torch.tensor(scaler_mean, device=device)
         scaler_std = torch.tensor(scaler_std, device=device)
 
+    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.conv_seq)
+    seq_batch = slicq_shape[-2]
+
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
         nsgt_base.M,
+        seq_batch,
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
         info=args.print_shape,
     ).to(device)
 
-    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
     torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = torch.nn.MSELoss()
+    criterion = auraloss.time.SISDRLoss()
 
     if args.find_lr:
         train_sampler_encoded = UnmixNSGTizer(train_sampler, encoder)
@@ -440,7 +511,7 @@ def main():
     fig = None
     axs = None
     if args.debug_plots:
-        fig, axs = plt.subplots(2, 2)
+        fig, axs = plt.subplots(4, 2)
         fig.suptitle('umx-sliCQ debug')
         plt.ion()
         plt.show()
@@ -449,7 +520,13 @@ def main():
         t.set_description("Training Epoch")
         end = time.time()
         train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=fig, axs=axs)
-        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
+        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion, fig=fig, axs=axs)
+
+        if fig is not None:
+            [[ax_.grid() for ax_ in ax] for ax in axs]
+            plt.draw()
+            fig.canvas.flush_events()
+
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)

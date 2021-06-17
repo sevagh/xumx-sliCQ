@@ -95,6 +95,7 @@ class NSGTBase(nn.Module):
 
     def _apply(self, fn):
         self.nsgt._apply(fn)
+        return self
 
 
 class NSGT_SL(nn.Module):
@@ -104,6 +105,7 @@ class NSGT_SL(nn.Module):
 
     def _apply(self, fn):
         self.nsgt._apply(fn)
+        return self
 
     def forward(self, x: Tensor) -> Tensor:
         """NSGT forward path
@@ -151,6 +153,9 @@ class INSGT_SL(nn.Module):
         super(INSGT_SL, self).__init__()
         self.nsgt = nsgt
 
+    def _apply(self, fn):
+        self.nsgt._apply(fn)
+        return self
 
     def forward(self, X: Tensor, length: int) -> Tensor:
         X /= self.nsgt.scale
