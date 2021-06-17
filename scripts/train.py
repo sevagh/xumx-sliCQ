@@ -32,20 +32,6 @@ loss_list_train = []
 loss_list_valid = []
 
 
-# TODO fix this
-class UnmixNSGTizer(TrainDataLoaderIter):
-    def __init__(self, data_loader, encoder):
-        super().__init__(data_loader)
-        nsgt, _, cnorm = encoder
-        self.encoder = torch.nn.Sequential(nsgt, cnorm)
-
-    def inputs_labels_from_batch(self, batch_data):
-        x, y = batch_data
-        X = self.encoder(x)
-        Y = self.encoder(y)
-        return X, Y
-
-
 #@profile
 def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=None, axs=None):
     # unpack encoder object
@@ -118,21 +104,29 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion, fig=None, axs=
 
     losses = utils.AverageMeter()
     unmix.eval()
+    missed = 0
     with torch.no_grad():
         pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
-        for x, y in pbar:
+        for xlong, y in pbar:
             pbar.set_description("Validation batch")
-            x, y = x.to(device), y.to(device)
+            xlong, y = xlong.to(device), y.to(device)
 
-            X = nsgt(x)
-            Xmag = cnorm(X)
+            yhats = []
 
-            Ymag_hat = unmix(Xmag)
-            Ymag = cnorm(nsgt(y))
+            # above 10,000,000 samples ooms on my 3080 ti, so split on it
+            for x in torch.split(xlong, 8_000_000, dim=-1):
+                X = nsgt(x)
+                Xmag = cnorm(X)
 
-            Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                Ymag_hat = unmix(Xmag)
+                #Ymag = cnorm(nsgt(y))
 
-            y_hat = insgt(Y_hat, y.shape[-1])
+                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+
+                y_hat = insgt(Y_hat, x.shape[-1])
+                yhats.append(y_hat)
+
+            y_hat = torch.cat(yhats, dim=-1)
             loss = criterion(y_hat, y)
 
             if fig is not None and axs is not None:
@@ -253,7 +247,6 @@ def main():
     # Training Parameters
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--valid-batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate, defaults to 1e-3")
     parser.add_argument(
         "--patience",
@@ -284,12 +277,6 @@ def main():
         type=float,
         default=6.0,
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
-    )
-    parser.add_argument(
-        "--valid-seq-dur",
-        type=float,
-        default=6.0,
-        help="Validation sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
         "--conv-seq",
@@ -329,12 +316,6 @@ def main():
     )
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
-    )
-    parser.add_argument(
-        "--find-lr",
-        action="store_true",
-        default=False,
-        help="Run lr finding process",
     )
     parser.add_argument(
         "--skip-statistics",
@@ -459,14 +440,6 @@ def main():
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = auraloss.time.SISDRLoss()
-
-    if args.find_lr:
-        train_sampler_encoded = UnmixNSGTizer(train_sampler, encoder)
-        lr_finder = LRFinder(unmix, optimizer, criterion, device)
-
-        lr_finder.range_test(train_sampler_encoded, end_lr=100, num_iter=1000)
-        lr_finder.plot()
-        return
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,

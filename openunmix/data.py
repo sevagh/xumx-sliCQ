@@ -304,9 +304,7 @@ def load_datasets(
             help="supply fixed start (in s) of song (<0.0 = random start)",
         )
         parser.add_argument("--samples-per-track", type=int, default=64)
-        parser.add_argument("--valid-samples-per-track", type=int, default=1)
         parser.add_argument("--source-augmentations", type=str, nargs="+")
-        parser.add_argument("--random-track-mix", action="store_true", default=False, help="draw sources from random track mix")
 
         args = parser.parse_args()
         dataset_kwargs = {
@@ -317,7 +315,6 @@ def load_datasets(
             "download": args.root is None,
             "seed": args.seed,
             "fixed_start": args.fixed_start,
-            "random_track_mix": args.random_track_mix,
         }
 
         source_augmentations = aug_from_str(args.source_augmentations)
@@ -327,11 +324,12 @@ def load_datasets(
             samples_per_track=args.samples_per_track,
             seq_duration=args.seq_dur,
             source_augmentations=source_augmentations,
+            random_track_mix=True,
             **dataset_kwargs,
         )
 
         valid_dataset = MUSDBDataset(
-            split="valid", samples_per_track=args.valid_samples_per_track, seq_duration=args.valid_seq_dur, **dataset_kwargs, 
+            split="valid", samples_per_track=1, seq_duration=None, **dataset_kwargs, 
         )
 
     return train_dataset, valid_dataset, args
