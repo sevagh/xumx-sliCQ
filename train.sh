@@ -9,6 +9,7 @@ epochs=1000
 workers=4
 seqdur=3
 convseq=3
+#samppertrack=64
 samppertrack=1
 
 python scripts/train.py \
@@ -16,7 +17,7 @@ python scripts/train.py \
 	--target="vocals" --seq-dur=$seqdur --valid-seq-dur=$seqdur --valid-batch-size=$batch --valid-samples-per-track=$samppertrack --samples-per-track=$samppertrack \
 	--fscale='mel' --fbins=116 --fmin=37.7 --sllen=8024 --conv-seq=$convseq \
 	--output "${outdir}" \
-	--skip-statistics --print-shape --debug-plots --print-shape --patience=1000 --fixed-start=13 #--source-augmentations gain channelswap 
+	--skip-statistics --print-shape --debug-plots --print-shape --patience=1000 --fixed-start=13
 
 #	--target="drums" \
 #	--fscale='mel' --fbins=104 --fmin=49.3 --sllen=7108 \

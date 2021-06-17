@@ -42,11 +42,11 @@ class OpenUnmix(nn.Module):
         self.M = M
 
         # TODO support causality with causal convolutions
-        channels = [nb_channels, 25, 55, 75]
-        filters = [(13, 13), (11, 11), (9, 9)]
-        strides = [(1, 1), (1, 1), (1, 1)]
-        dilations = [(1, 1), (1, 4), (1, 8)]
-        output_paddings = [(0, 0), (0, 0), (0, 0)]
+        channels = [nb_channels, 25, 55]#, 75]
+        filters = [(13, 13), (11, 11)]#, (9, 9)]
+        strides = [(1, 1), (1, 1)]#, (1, 1)]
+        dilations = [(1, 1), (1, 8)]#, (1, 8)]
+        output_paddings = [(0, 0), (0, 0)]#, (0, 0)]
 
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()

@@ -129,10 +129,16 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
             device=device
         )
 
+        nb_channels = results["args"]["nb_channels"]
+
+        slicq_shape = nsgt_base.predict_input_size(1, nb_channels, results["args"]["conv_seq"])
+        seq_batch = slicq_shape[-2]
+
         models[target] = model.OpenUnmix(
             nsgt_base.fbins_actual,
             nsgt_base.M,
-            nb_channels=results["args"]["nb_channels"],
+            seq_batch,
+            nb_channels=nb_channels,
         )
 
         models_nsgt[target] = nsgt_base
