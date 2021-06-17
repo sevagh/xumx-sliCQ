@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, BatchNorm1d, Dropout, ELU
+from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, BatchNorm1d, Conv1d, ConvTranspose1d
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
@@ -32,8 +32,12 @@ class OpenUnmix(nn.Module):
         M,
         seq_batch,
         nb_channels=2,
+        hidden_size=512,
+        nb_layers=3,
+        temporal_features=30,
         input_mean=None,
         input_scale=None,
+        unidirectional=False,
         info=False,
     ):
         super(OpenUnmix, self).__init__()
@@ -41,39 +45,38 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        # TODO support causality with causal convolutions
-        channels = [nb_channels, 25, 55]#, 75]
-        filters = [(7, 7), (9, 9)]#, (9, 9)]
-        strides = [(3, 5), (1, 1)]#, (1, 1)]
-        dilations = [(1, 1), (1, 8)]#, (1, 8)]
-        output_paddings = [(2, 1), (0, 0)]#, (0, 0)]
+        hidden_size = 2*nb_bins
+        self.hidden_size = hidden_size
 
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
+        if unidirectional:
+            rnn_hidden_size = hidden_size
+        else:
+            rnn_hidden_size = hidden_size // 2
 
-        layers = len(filters)
+        self.cn1 = Conv1d(M, temporal_features, 1, bias=False)
+        self.bn1 = BatchNorm1d(temporal_features)
+        self.act1 = Tanh()
 
-        # input channel
+        self.rnn = LSTM(
+            input_size=hidden_size,
+            hidden_size=rnn_hidden_size,
+            num_layers=nb_layers,
+            bidirectional=not unidirectional,
+            batch_first=False,
+            dropout=0.4 if nb_layers > 1 else 0,
+        )
 
-        for i in range(layers):
-            self.encoder.extend([
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
-                BatchNorm2d(channels[i+1]),
-                ReLU(),
-            ])
+        fc2_hiddensize = hidden_size * 2
+        self.fc2 = Linear(in_features=fc2_hiddensize, out_features=hidden_size, bias=False)
+        self.bn2 = BatchNorm1d(hidden_size)
+        self.act2 = ReLU()
 
-        for i in range(layers,1,-1):
-            self.decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
-                BatchNorm2d(channels[i-1]),
-                ReLU(),
-            ])
+        self.fc3 = Linear(in_features=hidden_size, out_features=nb_channels*self.nb_bins, bias=False)
+        self.bn3 = BatchNorm1d(nb_channels*self.nb_bins)
+        self.act3 = ReLU()
 
-        # last layer has special activation
-        self.decoder.append(ConvTranspose2d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0], bias=False))
-        #self.decoder.append(BatchNorm2d(channels[0]))
-        self.decoder.append(Sigmoid())
-        self.mask = True
+        self.cn4 = ConvTranspose1d(temporal_features, M, 1, bias=True)
+        self.act4 = Sigmoid()
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -92,9 +95,6 @@ class OpenUnmix(nn.Module):
         if self.info:
             logging.basicConfig(level=logging.INFO)
 
-        # chunked for inputs longer than the seq
-        self.seq_batch = seq_batch
-
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
         # at test time
@@ -102,29 +102,30 @@ class OpenUnmix(nn.Module):
             p.requires_grad = False
         self.eval()
 
-    def forward(self, xlong: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         if self.info:
             print()
 
-        logging.info(f'-3. {xlong.shape}')
-        mix = xlong.detach().clone()
+        mix = x.detach().clone()
         logging.info(f'0. mix shape: {mix.shape}')
 
-        pad = int(np.ceil(xlong.shape[3]/self.seq_batch))*self.seq_batch - xlong.shape[3]
-        xlong = F.pad(xlong, (0, 0, 0, pad), mode='constant', value=0)
+        nb_samples, nb_channels, nb_f_bins, nb_frames, nb_m_bins = x.shape
 
-        x = torch.cat([torch.unsqueeze(x_, dim=0) for x_ in torch.split(xlong, self.seq_batch, dim=3)])
-        logging.info(f'-2. {x.shape}')
-        nb_splits = x.shape[0]
-        nb_samples_orig = x.shape[1]
+        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
-        # stack splits as samples
-        x = x.reshape(x.shape[0]*x.shape[1], *x.shape[2:])
-        logging.info(f'-1. {x.shape}')
-
-        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
+        logging.info(f'-2. pre-conv1d {x.shape}')
+        x = x.reshape(nb_samples*nb_channels*nb_frames, nb_m_bins, nb_f_bins)
+        logging.info(f'-2. pre-conv1d {x.shape}')
+        x = self.cn1(x)
+        logging.info(f'-2. pre-conv1d {x.shape}')
+        x = self.bn1(x)
+        logging.info(f'-2. pre-conv1d {x.shape}')
+        x = self.act1(x)
+        logging.info(f'-2. pre-conv1d {x.shape}')
+        nb_m_bins_small = x.shape[-2]
 
         x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+        logging.info(f'-3. post-conv1d {x.shape}')
 
         # permute so that batch is last for lstm
         x = x.permute(3, 0, 1, 2)
@@ -132,50 +133,64 @@ class OpenUnmix(nn.Module):
         logging.info(f'0. {x.shape}')
 
         # shift and scale input to mean=0 std=1 (across all bins)
-        x = x + self.input_mean[: self.nb_bins]
-        x = x * self.input_scale[: self.nb_bins]
+        x = x + self.input_mean[: nb_f_bins]
+        x = x * self.input_scale[: nb_f_bins]
 
-        logging.info(f'1. POST-SCALE {x.shape}')
+        logging.info(f'1. SCALE {x.shape}')
 
         x = x.permute(1, 2, 3, 0)
 
-        x = x.reshape(nb_samples, nb_channels, self.nb_bins, -1)
+        # to (nb_frames*nb_samples, nb_channels*nb_bins)
+        # and encode to (nb_frames*nb_samples, hidden_size)
+        #x = x.reshape(-1, nb_channels * nb_f_bins)
+        #x = self.fc1(x)
+        #x = self.bn1(x)
+        #x = self.act1(x)
 
-        logging.info(f'5. PRE-ENCODER {x.shape}')
+        logging.info(f'2. LINEAR 1 {x.shape}')
 
-        for i, layer in enumerate(self.encoder):
-            sh1 = x.shape
-            x = layer(x)
-            sh2 = x.shape
-            logging.info(f'\t5-{i} ENCODER {sh1} -> {sh2}')
+        # normalize every instance in a batch
+        x = x.reshape(-1, nb_samples, self.hidden_size)
 
-        post_enc_shape = x.shape
-        logging.info(f'6. POST-ENCODER {x.shape}')
+        rnn_out, _ = self.rnn(x)
 
-        for layer in self.decoder:
-            sh1 = x.shape
-            x = layer(x)
-            sh2 = x.shape
-            logging.info(f'\t6-{i} DECODER {sh1} -> {sh2}')
+        logging.info(f'3. LSTM {x.shape}')
 
-        logging.info(f'7. POST-DECODER {x.shape}')
+        # skip conn
+        x = torch.cat([x, rnn_out], -1)
+        x = x.reshape(-1, x.shape[-1])
 
-        x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
+        logging.info(f'4. SKIP-CONN 1 {x.shape}')
+
+        # second dense stage
+        x = self.fc2(x)
+        # relu activation because our output is positive
+        x = self.act2(x)
+        x = self.bn2(x)
+
+        logging.info(f'5. LINEAR 2 {x.shape}')
+
+        #print('x.shape: {0}'.format(x.shape))
+
+        # third dense stage + batch norm
+        x = self.fc3(x)
+        x = self.bn3(x)
+        x = self.act3(x)
+
+        logging.info(f'6. pre-conv1d {x.shape}')
+        x = x.reshape(nb_samples*nb_channels*nb_frames, nb_m_bins_small, nb_f_bins)
+        x = self.cn4(x)
+        x = self.act4(x)
+
+        logging.info(f'7. PREDICTED MASK {x.shape}')
+
+        x = x.reshape(nb_samples, nb_channels, nb_frames, nb_f_bins, nb_m_bins)
         x = x.permute(0, 1, 3, 2, 4)
 
-        logging.info(f'8. RET {x.shape}')
-        x = x.reshape(nb_samples_orig, nb_channels, nb_f_bins, nb_slices*nb_splits, nb_m_bins)
-        logging.info(f'9. RET {x.shape}')
-        if pad > 0:
-            x = x[..., : -pad, :]
-        logging.info(f'10. RET PAD CROPPED {x.shape}')
+        ret = x * mix
 
-        logging.info(f'10. mix {mix.shape}')
-
-        if self.mask:
-            x = x*mix
-
-        return x
+        logging.info(f'6. RET {ret.shape}')
+        return ret
 
 
 class Separator(nn.Module):

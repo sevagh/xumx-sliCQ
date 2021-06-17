@@ -70,27 +70,27 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig
             pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
             pred_plot = pred_plot.detach().cpu().numpy()
 
-            axs[0, 0].clear()
-            axs[1, 0].clear()
-            axs[2, 0].clear()
-            axs[3, 0].clear()
+            axs[0].clear()
+            axs[1].clear()
+            axs[2].clear()
+            axs[3].clear()
 
-            axs[0, 0].plot(mix_plot)
-            axs[0, 0].set_title('TRAIN input mixed slicq')
+            axs[0].plot(mix_plot)
+            axs[0].set_title('TRAIN input mixed slicq')
 
-            axs[3, 0].plot(loss_list_train)
-            axs[3, 0].set_title('TRAIN SISDR loss')
+            axs[3].plot(loss_list_train)
+            axs[3].set_title('TRAIN SISDR loss')
 
-            axs[1, 0].plot(pred_plot)
-            axs[1, 0].set_title('TRAIN pred')
+            axs[1].plot(pred_plot)
+            axs[1].set_title('TRAIN pred')
 
             gt_plot = torch.squeeze(Ymag, dim=0)
             gt_plot = gt_plot.mean(dim=0, keepdim=False)
             gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
             gt_plot = gt_plot.detach().cpu().numpy()
 
-            axs[2, 0].plot(gt_plot)
-            axs[2, 0].set_title('TRAIN ground truth slicq')
+            axs[2].plot(gt_plot)
+            axs[2].set_title('TRAIN ground truth slicq')
 
         loss.backward()
         optimizer.step()
@@ -98,7 +98,7 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig
     return losses.avg
 
 
-def valid(args, unmix, encoder, device, valid_sampler, criterion, fig=None, axs=None):
+def valid(args, unmix, encoder, device, valid_sampler, criterion):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -112,14 +112,15 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion, fig=None, axs=
             xlong, y = xlong.to(device), y.to(device)
 
             yhats = []
+            Ymag = None
 
             # above 10,000,000 samples ooms on my 3080 ti, so split on it
-            for x in torch.split(xlong, 8_000_000, dim=-1):
+            for (x, yseg) in zip(torch.split(xlong, 8_000_000, dim=-1), torch.split(y, 1_000_000, dim=-1)):
                 X = nsgt(x)
                 Xmag = cnorm(X)
 
                 Ymag_hat = unmix(Xmag)
-                #Ymag = cnorm(nsgt(y))
+                Ymag = cnorm(nsgt(yseg))
 
                 Y_hat = transforms.phasemix_sep(X, Ymag_hat)
 
@@ -128,42 +129,6 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion, fig=None, axs=
 
             y_hat = torch.cat(yhats, dim=-1)
             loss = criterion(y_hat, y)
-
-            if fig is not None and axs is not None:
-                loss_list_valid.append(loss.item())
-
-                mix_plot = torch.squeeze(Xmag, dim=0)
-                mix_plot = mix_plot.mean(dim=0, keepdim=False)
-                mix_plot = mix_plot.reshape(-1, mix_plot.shape[-1])
-                mix_plot = mix_plot.detach().cpu().numpy()
-
-                pred_plot = torch.squeeze(Ymag_hat, dim=0)
-                pred_plot = pred_plot.mean(dim=0, keepdim=False)
-                pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
-                pred_plot = pred_plot.detach().cpu().numpy()
-
-                axs[0, 1].clear()
-                axs[1, 1].clear()
-                axs[2, 1].clear()
-                axs[3, 1].clear()
-
-                axs[0, 1].plot(mix_plot)
-                axs[0, 1].set_title('VALID input mixed slicq')
-
-                axs[3, 1].plot(loss_list_valid)
-                axs[3, 1].set_title('VALID SISDR loss')
-
-                axs[1, 1].plot(pred_plot)
-                axs[1, 1].set_title('VALID pred')
-
-                gt_plot = torch.squeeze(Ymag, dim=0)
-                gt_plot = gt_plot.mean(dim=0, keepdim=False)
-                gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
-                gt_plot = gt_plot.detach().cpu().numpy()
-
-                axs[2, 1].plot(gt_plot)
-                axs[2, 1].set_title('VALID ground truth slicq')
-
             losses.update(loss.item(), y.size(1))
         return losses.avg
 
@@ -484,7 +449,7 @@ def main():
     fig = None
     axs = None
     if args.debug_plots:
-        fig, axs = plt.subplots(4, 2)
+        fig, axs = plt.subplots(4)
         fig.suptitle('umx-sliCQ debug')
         plt.ion()
         plt.show()
@@ -493,10 +458,11 @@ def main():
         t.set_description("Training Epoch")
         end = time.time()
         train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=fig, axs=axs)
-        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion, fig=fig, axs=axs)
+        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
+        #valid_loss = 0
 
         if fig is not None:
-            [[ax_.grid() for ax_ in ax] for ax in axs]
+            [ax_.grid() for ax_ in axs]
             plt.draw()
             fig.canvas.flush_events()
 
