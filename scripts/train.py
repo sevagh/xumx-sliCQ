@@ -33,7 +33,7 @@ loss_list_valid = []
 
 
 #@profile
-def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=None, axs=None):
+def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -47,51 +47,13 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig
         optimizer.zero_grad()
         X = nsgt(x)
         Xmag = cnorm(X)
-
         Ymag_hat = unmix(Xmag)
-        Ymag = cnorm(nsgt(y))
 
         # complex nsgt after phasemix inversion
         Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        y_hat = insgt(Y_hat, y.shape[-1])
+        y_hat = insgt(Y_hat, x.shape[-1])
 
         loss = criterion(y_hat, y)
-
-        if fig is not None and axs is not None:
-            loss_list_train.append(loss.item())
-
-            mix_plot = torch.squeeze(Xmag, dim=0)
-            mix_plot = mix_plot.mean(dim=0, keepdim=False)
-            mix_plot = mix_plot.reshape(-1, mix_plot.shape[-1])
-            mix_plot = mix_plot.detach().cpu().numpy()
-
-            pred_plot = torch.squeeze(Ymag_hat, dim=0)
-            pred_plot = pred_plot.mean(dim=0, keepdim=False)
-            pred_plot = pred_plot.reshape(-1, pred_plot.shape[-1])
-            pred_plot = pred_plot.detach().cpu().numpy()
-
-            axs[0].clear()
-            axs[1].clear()
-            axs[2].clear()
-            axs[3].clear()
-
-            axs[0].plot(mix_plot)
-            axs[0].set_title('TRAIN input mixed slicq')
-
-            axs[3].plot(loss_list_train)
-            axs[3].set_title('TRAIN SISDR loss')
-
-            axs[1].plot(pred_plot)
-            axs[1].set_title('TRAIN pred')
-
-            gt_plot = torch.squeeze(Ymag, dim=0)
-            gt_plot = gt_plot.mean(dim=0, keepdim=False)
-            gt_plot = gt_plot.reshape(-1, gt_plot.shape[-1])
-            gt_plot = gt_plot.detach().cpu().numpy()
-
-            axs[2].plot(gt_plot)
-            axs[2].set_title('TRAIN ground truth slicq')
-
         loss.backward()
         optimizer.step()
         losses.update(loss.item(), y.size(1))
@@ -115,7 +77,7 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
             Ymag = None
 
             # above 10,000,000 samples ooms on my 3080 ti, so split on it
-            for (x, yseg) in zip(torch.split(xlong, 8_000_000, dim=-1), torch.split(y, 1_000_000, dim=-1)):
+            for (x, yseg) in zip(torch.split(xlong, 4_000_000, dim=-1), torch.split(y, 1_000_000, dim=-1)):
                 X = nsgt(x)
                 Xmag = cnorm(X)
 
@@ -242,12 +204,6 @@ def main():
         type=float,
         default=6.0,
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
-    )
-    parser.add_argument(
-        "--conv-seq",
-        type=float,
-        default=1.0,
-        help="Segment size that the CDAE will train on (longer inputs will be chunked)",
     )
     parser.add_argument(
         "--fscale",
@@ -388,13 +344,11 @@ def main():
         scaler_mean = torch.tensor(scaler_mean, device=device)
         scaler_std = torch.tensor(scaler_std, device=device)
 
-    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.conv_seq)
-    seq_batch = slicq_shape[-2]
+    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
 
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
         nsgt_base.M,
-        seq_batch,
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
@@ -446,25 +400,11 @@ def main():
         train_times = []
         best_epoch = 0
 
-    fig = None
-    axs = None
-    if args.debug_plots:
-        fig, axs = plt.subplots(4)
-        fig.suptitle('umx-sliCQ debug')
-        plt.ion()
-        plt.show()
-
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer, fig=fig, axs=axs)
+        train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer)
         valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
-        #valid_loss = 0
-
-        if fig is not None:
-            [ax_.grid() for ax_ in axs]
-            plt.draw()
-            fig.canvas.flush_events()
 
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
