@@ -1,11 +1,5 @@
 ## Choosing best NSGT
 
-# vocal lr
-
-Learning rate search finished. See the graph with {finder_name}.plot()
-LR suggestion: steepest gradient
-Suggested LR: 1.02E+01
-
 # sllen <= 8192
 
 2 runs with 2 random seeds:

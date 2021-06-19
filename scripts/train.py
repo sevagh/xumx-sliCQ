@@ -31,6 +31,8 @@ tqdm.monitor_interval = 0
 loss_list_train = []
 loss_list_valid = []
 
+_BIG_SPLIT = 4_000_000
+
 
 #@profile
 def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
@@ -45,18 +47,19 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
         pbar.set_description("Training batch")
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
-        X = nsgt(x)
-        Xmag = cnorm(X)
+        Xmag = cnorm(nsgt(x))
         Ymag_hat = unmix(Xmag)
+        Ymag = cnorm(nsgt(y))
 
         # complex nsgt after phasemix inversion
-        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        y_hat = insgt(Y_hat, x.shape[-1])
+        #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+        #y_hat = insgt(Y_hat, x.shape[-1])
 
-        loss = criterion(y_hat, y)
+        loss = criterion(Ymag_hat, Ymag)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(unmix.parameters(), args.clip)
         optimizer.step()
-        losses.update(loss.item(), y.size(1))
+        losses.update(loss.item(), Ymag.size(1))
     return losses.avg
 
 
@@ -73,25 +76,27 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
             pbar.set_description("Validation batch")
             xlong, y = xlong.to(device), y.to(device)
 
-            yhats = []
-            Ymag = None
+            Ymags = []
+            Ymags_hats = []
 
             # above 10,000,000 samples ooms on my 3080 ti, so split on it
-            for (x, yseg) in zip(torch.split(xlong, 4_000_000, dim=-1), torch.split(y, 1_000_000, dim=-1)):
-                X = nsgt(x)
-                Xmag = cnorm(X)
-
+            for (x, yseg) in zip(torch.split(xlong, _BIG_SPLIT, dim=-1), torch.split(y, _BIG_SPLIT, dim=-1)):
+                Xmag = cnorm(nsgt(x))
                 Ymag_hat = unmix(Xmag)
                 Ymag = cnorm(nsgt(yseg))
 
-                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                #y_hat = insgt(Y_hat, x.shape[-1])
+                Ymags.append(Ymag)
+                Ymags_hats.append(Ymag_hat)
 
-                y_hat = insgt(Y_hat, x.shape[-1])
-                yhats.append(y_hat)
-
-            y_hat = torch.cat(yhats, dim=-1)
-            loss = criterion(y_hat, y)
-            losses.update(loss.item(), y.size(1))
+            print(f'Ymag shape: {Ymags[0].shape}')
+            print(f'Ymag_hat shape: {Ymags_hats[0].shape}')
+            #y_hat = torch.cat(yhats, dim=-1)
+            Ymag = torch.cat(Ymags, dim=3)
+            Ymag_hat = torch.cat(Ymags_hats, dim=3)
+            loss = criterion(Ymag_hat, Ymag)
+            losses.update(loss.item(), Ymag.size(1))
         return losses.avg
 
 
@@ -194,6 +199,7 @@ def main():
         help="gamma of learning rate scheduler decay",
     )
     parser.add_argument("--weight-decay", type=float, default=0.00001, help="weight decay")
+    parser.add_argument("--clip", type=int, default=1, help="gradient clipping")
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
@@ -315,17 +321,16 @@ def main():
         device=device
     )
 
-    nsgt, insgt = transforms.make_filterbanks(
+    nsgt, _ = transforms.make_filterbanks(
         nsgt_base, sample_rate=train_dataset.sample_rate
     )
     cnorm = model.ComplexNorm(mono=args.nb_channels == 1)
 
     nsgt = nsgt.to(device)
-    insgt = insgt.to(device)
     cnorm = cnorm.to(device)
     
     # pack the 3 pieces of the encoder/decoder
-    encoder = (nsgt, insgt, cnorm)
+    encoder = (nsgt, None, cnorm)
 
     separator_conf = {
         "sample_rate": train_dataset.sample_rate,
@@ -358,7 +363,7 @@ def main():
     torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = auraloss.time.SISDRLoss()
+    criterion = torch.nn.MSELoss() #auraloss.time.SISDRLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,

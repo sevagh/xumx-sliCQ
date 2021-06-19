@@ -31,7 +31,7 @@ class OpenUnmix(nn.Module):
         nb_bins,
         M,
         nb_channels=2,
-        nb_layers=5,
+        nb_layers=3,
         unidirectional=False,
         input_mean=None,
         input_scale=None,
@@ -52,7 +52,7 @@ class OpenUnmix(nn.Module):
             rnn_layers = 2*nb_layers
             rnn_hidden_size = hidden_size // 2
 
-        self.rnn = GRU(
+        self.rnn = LSTM(
             input_size=hidden_size,
             hidden_size=rnn_hidden_size,
             num_layers=nb_layers,
@@ -66,7 +66,7 @@ class OpenUnmix(nn.Module):
         self.bn2 = BatchNorm1d(hidden_size)
         self.act2 = ReLU()
 
-        self.grow3 = Conv1d(M//2, M, 1, bias=True)
+        self.fc3 = Linear(in_features=M//2, out_features=M, bias=True)
         self.act3 = Sigmoid()
 
         if input_mean is not None:
@@ -141,9 +141,8 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'7. PREDICTED MASK {x.shape}')
 
-        x = x.reshape(-1, nb_m_bins//2, nb_f_bins)
-        x = self.grow3(x)
-        # sigmoid activation because our output is a soft mask
+        x = x.reshape(-1, nb_m_bins//2)
+        x = self.fc3(x)
         x = self.act3(x)
 
         x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
