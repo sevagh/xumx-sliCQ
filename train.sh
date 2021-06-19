@@ -4,16 +4,17 @@ musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
 musdbdebug="/home/sevagh/musdbdebug"
 outdir="umx-slicq-1"
 
-batch=16
+batch=8
 epochs=1000
 workers=4
-seqdur=6
+seqdur=5
 
 python scripts/train.py \
 	--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-	--seq-dur=$seqdur --samples-per-track=1 \
-	--target="vocals" --fscale='bark' --fbins=30 --fmin=38.5 --sllen=2012 \
-	--output "${outdir}" --skip-statistics
+	--seq-dur=$seqdur --samples-per-track=16 \
+	--target="vocals" --fscale='mel' --fbins=116 --fmin=37.7 --sllen=8024 \
+	--output "${outdir}" --skip-statistics \
+	--source-augmentations gain channelswap
 
 	#--target="drums" --fscale='mel' --fbins=104 --fmin=49.3 --sllen=7108 \
 	#--target="other" --fscale='bark' --fbins=64 --fmin=90.0 --sllen=4416 \

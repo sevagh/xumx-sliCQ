@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, GRU, BatchNorm1d, Conv1d, ConvTranspose1d, Conv3d, ConvTranspose3d, BatchNorm3d
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep
 from collections import defaultdict
 import numpy as np
 import logging
@@ -31,7 +31,8 @@ class OpenUnmix(nn.Module):
         nb_bins,
         M,
         nb_channels=2,
-        nb_layers=3,
+        hidden_size=2048,
+        nb_layers=6,
         unidirectional=False,
         input_mean=None,
         input_scale=None,
@@ -42,7 +43,6 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        hidden_size = nb_channels*nb_bins
         self.hidden_size = hidden_size
 
         if unidirectional:
@@ -51,6 +51,10 @@ class OpenUnmix(nn.Module):
         else:
             rnn_layers = 2*nb_layers
             rnn_hidden_size = hidden_size // 2
+
+        self.fc1 = Linear(in_features=nb_channels*self.nb_bins*M, out_features=hidden_size, bias=False)
+        self.bn1 = BatchNorm1d(hidden_size)
+        self.act1 = Tanh()
 
         self.rnn = LSTM(
             input_size=hidden_size,
@@ -66,7 +70,7 @@ class OpenUnmix(nn.Module):
         self.bn2 = BatchNorm1d(hidden_size)
         self.act2 = ReLU()
 
-        self.fc3 = Linear(in_features=M//2, out_features=M, bias=True)
+        self.fc3 = Linear(in_features=hidden_size, out_features=nb_channels*self.nb_bins*M, bias=True)
         self.act3 = Sigmoid()
 
         if input_mean is not None:
@@ -110,20 +114,25 @@ class OpenUnmix(nn.Module):
         x = x + self.input_mean[: nb_f_bins]
         x = x * self.input_scale[: nb_f_bins]
 
+        x = x.permute(0, 1, 4, 2, 3)
+
+        logging.info(f'1. SCALE {x.shape}')
+
+        # to (nb_frames*nb_samples, nb_channels*nb_bins)
+        # and encode to (nb_frames*nb_samples, hidden_size)
+
+        x = x.reshape(nb_slices*nb_samples, -1)
+
+        x = self.fc1(x)
+        logging.info(f'3. FC1 {x.shape}')
+        x = self.bn1(x)
+        x = self.act1(x)
+
+        logging.info(f'2. LINEAR 1 {x.shape}')
+
+        # normalize every instance in a batch
         x = x.reshape(-1, nb_samples, self.hidden_size)
 
-        # x can be overlap-added on the time dimension to compress the slicq
-        shh = nb_m_bins//2
-        x_ = torch.empty((x.shape[0]//2, nb_samples, self.hidden_size), dtype=x.dtype, device=x.device)
-        fr = 0
-        fr_ = 0
-
-        for i in range(nb_slices):
-            x_[fr:fr+shh] += x[fr_:fr_+shh]
-            fr += shh
-            fr_ += nb_m_bins
-
-        x = x_
         rnn_out, _ = self.rnn(x)
 
         logging.info(f'3. LSTM {x.shape}')
@@ -134,21 +143,24 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'4. SKIP-CONN 1 {x.shape}')
 
-        # second dense stage + ReLU
+        # second dense stage
         x = self.fc2(x)
-        x = self.bn2(x)
+        # relu activation because our output is positive
         x = self.act2(x)
+        x = self.bn2(x)
 
-        logging.info(f'7. PREDICTED MASK {x.shape}')
+        logging.info(f'5. LINEAR 2 {x.shape}')
 
-        x = x.reshape(-1, nb_m_bins//2)
+        #print('x.shape: {0}'.format(x.shape))
+
+        # third dense stage + batch norm
         x = self.fc3(x)
         x = self.act3(x)
 
+        logging.info(f'6. PREDICTED MASK {x.shape}')
+
         x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
         x = x.permute(0, 1, 3, 2, 4)
-
-        logging.info(f'8. PREDICTED MASK {x.shape}')
 
         ret = x * mix
 
