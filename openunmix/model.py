@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, GRU, BatchNorm1d, Conv1d, ConvTranspose1d, Conv3d, ConvTranspose3d, BatchNorm3d, LeakyReLU
+from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm3d, Conv3d, ConvTranspose3d, Tanh, LSTM, BatchNorm1d
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
 import numpy as np
 import logging
@@ -31,9 +31,8 @@ class OpenUnmix(nn.Module):
         nb_bins,
         M,
         nb_channels=2,
-        hidden_size=512,
-        nb_layers=3,
         unidirectional=False,
+        nb_layers=1,
         input_mean=None,
         input_scale=None,
         info=False,
@@ -43,36 +42,36 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        self.hidden_size = hidden_size
+        # do 3D convolutions but don't touch the "slice" spatial dimension, which will be used for the GRU
+        channels = [nb_channels, 12, 20, 30, 40]
+        filters = [(11, 11, 42), (5, 11, 11), (3, 9, 9), (1, 3, 3)]
+        strides = [(1, 3, 5), (1, 1, 1), (1, 1, 1), (1, 1, 1)]
+        dilations = [(1, 1, 1), (1, 1, 2), (2, 1, 2), (2, 1, 2)]
+        output_paddings = [(0, 1, 2), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
 
-        if unidirectional:
-            rnn_layers = nb_layers
-            rnn_hidden_size = hidden_size
-        else:
-            rnn_layers = 2*nb_layers
-            rnn_hidden_size = hidden_size // 2
+        self.encoder = nn.ModuleList()
+        self.decoder = nn.ModuleList()
 
-        self.fc1 = Linear(in_features=nb_channels*self.nb_bins*M, out_features=hidden_size, bias=False)
-        self.bn1 = BatchNorm1d(hidden_size)
-        self.act1 = Tanh()
+        layers = len(filters)
 
-        self.rnn = GRU(
-            input_size=hidden_size,
-            hidden_size=rnn_hidden_size,
-            num_layers=nb_layers,
-            bidirectional=not unidirectional,
-            batch_first=False,
-            dropout=0.4 if nb_layers > 1 else 0,
-        )
+        for i in range(layers):
+            self.encoder.extend([
+                Conv3d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
+                BatchNorm3d(channels[i+1]),
+                ReLU(),
+            ])
 
-        fc2_hiddensize = hidden_size * 2
-        self.fc2 = Linear(in_features=fc2_hiddensize, out_features=hidden_size, bias=False)
-        self.bn2 = BatchNorm1d(hidden_size)
-        self.act2 = LeakyReLU()
+        for i in range(layers,1,-1):
+            self.decoder.extend([
+                ConvTranspose3d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
+                BatchNorm3d(channels[i-1]),
+                ReLU(),
+            ])
 
-        self.fc3 = Linear(in_features=hidden_size, out_features=nb_channels*self.nb_bins*M, bias=True)
-        #self.bn3 = BatchNorm1d(nb_channels*self.nb_bins*M)
-        self.act3 = LeakyReLU()
+        # last layer has special activation
+        self.decoder.append(ConvTranspose3d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0], bias=True))
+        self.decoder.append(Sigmoid())
+        self.mask = True
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -84,19 +83,12 @@ class OpenUnmix(nn.Module):
         else:
             input_scale = torch.ones(self.nb_bins)
 
-        #self.input_mean = Parameter(input_mean)
-        #self.input_scale = Parameter(input_scale)
+        self.input_mean = Parameter(input_mean)
+        self.input_scale = Parameter(input_scale)
 
         self.info = info
         if self.info:
             logging.basicConfig(level=logging.INFO)
-
-        def init_weights(m):
-            if type(m) == nn.Linear:
-                torch.nn.init.xavier_uniform_(m.weight)
-                #m.bias.data.fill_(0.01)
-
-        self.apply(init_weights)
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -110,70 +102,57 @@ class OpenUnmix(nn.Module):
             print()
 
         mix = x.detach().clone()
-        logging.info(f'0. mix shape: {mix.shape}')
+        logging.info(f'0. mix {mix.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
-        logging.info(f'0. x shape: {x.shape}')
-        x = x.permute(0, 1, 3, 4, 2)
+        x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+
+        # permute so that batch is last for lstm
+        x = x.permute(3, 0, 1, 2)
+
+        logging.info(f'0. {x.shape}')
 
         # shift and scale input to mean=0 std=1 (across all bins)
-        #x = x + self.input_mean[: nb_f_bins]
-        #x = x * self.input_scale[: nb_f_bins]
+        x = x + self.input_mean[: self.nb_bins]
+        x = x * self.input_scale[: self.nb_bins]
 
-        x = x.permute(0, 1, 4, 2, 3)
+        logging.info(f'1. POST-SCALE {x.shape}')
 
-        logging.info(f'1. SCALE {x.shape}')
+        x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
 
-        # to (nb_frames*nb_samples, nb_channels*nb_bins)
-        # and encode to (nb_frames*nb_samples, hidden_size)
+        logging.info(f'2. PRE-ENCODER {x.shape}')
 
-        x = x.reshape(nb_slices*nb_samples, -1)
+        for i, layer in enumerate(self.encoder):
+            sh1 = x.shape
+            x = layer(x)
+            sh2 = x.shape
+            logging.info(f'\t2-{i} ENCODER {sh1} -> {sh2}')
 
-        x = self.fc1(x)
-        logging.info(f'3. FC1 {x.shape}')
-        x = self.bn1(x)
-        x = self.act1(x)
+        post_enc_shape = x.shape
+        logging.info(f'3. POST-ENCODER {x.shape}')
 
-        logging.info(f'2. LINEAR 1 {x.shape}')
+        nb_samples, nb_conv_channels, _, nb_f_conv, nb_m_conv = x.shape
 
-        # normalize every instance in a batch
-        x = x.reshape(-1, nb_samples, self.hidden_size)
+        logging.info(f'4. PRE-DECODER {x.shape}')
 
-        rnn_out, _ = self.rnn(x)
+        for layer in self.decoder:
+            sh1 = x.shape
+            x = layer(x)
+            sh2 = x.shape
+            logging.info(f'\t4-{i} DECODER {sh1} -> {sh2}')
 
-        logging.info(f'3. LSTM {x.shape}')
-
-        # skip conn
-        x = torch.cat([x, rnn_out], -1)
-        x = x.reshape(-1, x.shape[-1])
-
-        logging.info(f'4. SKIP-CONN 1 {x.shape}')
-
-        # second dense stage
-        x = self.fc2(x)
-        # relu activation because our output is positive
-        x = self.act2(x)
-        x = self.bn2(x)
-
-        logging.info(f'5. LINEAR 2 {x.shape}')
-
-        #print('x.shape: {0}'.format(x.shape))
-
-        # third dense stage + batch norm
-        x = self.fc3(x)
-        #x = self.bn3(x)
-        x = self.act3(x)
-
-        logging.info(f'6. PREDICTED MASK {x.shape}')
+        logging.info(f'5. POST-DECODER {x.shape}')
 
         x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
         x = x.permute(0, 1, 3, 2, 4)
 
-        ret = x * mix
+        logging.info(f'6. mix {mix.shape}')
 
-        logging.info(f'6. RET {ret.shape}')
-        return ret
+        if self.mask:
+            x = x*mix
+
+        return x
 
 
 class Separator(nn.Module):
@@ -205,7 +184,6 @@ class Separator(nn.Module):
         target_models_nsgt: dict,
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
-        seq_dur: float = 6.0,
         device: str = "cpu",
     ):
         super(Separator, self).__init__()
@@ -229,7 +207,6 @@ class Separator(nn.Module):
         self.target_models = nn.ModuleDict(target_models)
         # adding till https://github.com/pytorch/pytorch/issues/38963
         self.nb_targets = len(self.target_models)
-        self.seq_dur = seq_dur
         # get the sample_rate as the sample_rate of the first model
         # (tacitly assume it's the same for all targets)
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))

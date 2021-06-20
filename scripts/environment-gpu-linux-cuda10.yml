@@ -26,3 +26,4 @@ dependencies:
     - matplotlib
     - line_profiler
     - torch_lr_finder
+    - tensorboard

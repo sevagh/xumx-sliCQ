@@ -103,3 +103,4 @@ Temporary Items
 *.pth
 
 *.png
+*.tfevents.*localhost.localdomain.*

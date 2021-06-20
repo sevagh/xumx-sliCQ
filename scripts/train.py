@@ -18,6 +18,7 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 from torch_lr_finder import LRFinder, TrainDataLoaderIter
 import auraloss
+from torch.utils.tensorboard import SummaryWriter
 
 from openunmix import data
 from openunmix import model
@@ -27,38 +28,15 @@ from openunmix import filtering
 
 tqdm.monitor_interval = 0
 
-# hack for plotting loss in realtime
-loss_list_train = []
-loss_list_valid = []
-
 _BIG_SPLIT = 1_000_000
 
 
-def plot_grad_flow(named_parameters):
-    ave_grads = []
-    layers = []
-    for n, p in named_parameters:
-        if(p.requires_grad) and ("bias" not in n):
-            layers.append(n)
-            ave_grads.append(p.grad.abs().mean().cpu().detach().clone())
-    plt.plot(ave_grads, alpha=0.3, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
-    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
-    plt.xlim(xmin=0, xmax=len(ave_grads))
-    plt.xlabel("Layers")
-    plt.ylabel("average gradient")
-    plt.title("Gradient flow")
-    plt.grid(True)
-    plt.draw()
-    plt.pause(0.001)
-
-
-#@profile
-def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
+def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
     losses = utils.AverageMeter()
+    sdrs = utils.AverageMeter()
     unmix.train()
     pbar = tqdm.tqdm(train_sampler, disable=args.quiet)
 
@@ -68,6 +46,16 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
         optimizer.zero_grad()
         X = nsgt(x)
         Xmag = cnorm(X)
+
+        print('\nXmag min: {0}, max: {1}, std: {2}, var: {3}, median: {4}, mean: {5}\n'.format(
+            torch.min(X),
+            torch.max(X),
+            torch.std(X),
+            torch.var(X),
+            torch.median(X),
+            torch.mean(X),
+        ))
+
         Ymag_hat = unmix(Xmag)
         Ymag = cnorm(nsgt(y))
 
@@ -75,25 +63,27 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
         Y_hat = transforms.phasemix_sep(X, Ymag_hat)
         y_hat = insgt(Y_hat, x.shape[-1])
 
-        loss = criterion(
-            Ymag_hat,#y_hat,
+        loss = torch.nn.functional.mse_loss(
+            Ymag_hat,
             Ymag
         )
+        sdr = sdr_criterion(y_hat, y)
+
         loss.backward()
-        plot_grad_flow(unmix.named_parameters())
-        #torch.nn.utils.clip_grad_norm_(unmix.parameters(), args.clip)
         optimizer.step()
         losses.update(loss.item(), Ymag.size(1))
-    return losses.avg
+        sdrs.update(sdr.item(), y.size(1))
+
+    return losses.avg, sdrs.avg, Xmag
 
 
-def valid(args, unmix, encoder, device, valid_sampler, criterion):
+def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
     losses = utils.AverageMeter()
+    sdrs = utils.AverageMeter()
     unmix.eval()
-    missed = 0
     with torch.no_grad():
         pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
         for xlong, y in pbar:
@@ -105,17 +95,21 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
                 X = nsgt(xseg)
                 Xmag = cnorm(X)
                 Ymag_hat = unmix(Xmag)
+                Ymag = cnorm(nsgt(yseg))
 
                 Y_hat = transforms.phasemix_sep(X, Ymag_hat)
                 yseg_hat = insgt(Y_hat, xseg.shape[-1])
 
-                loss = criterion(
-                    yseg_hat,
-                    yseg
+                loss = torch.nn.functional.mse_loss(
+                    Ymag_hat,
+                    Ymag 
                 )
 
-                losses.update(loss.item(), yseg.size(1))
-        return losses.avg
+                sdr = sdr_criterion(yseg_hat, yseg)
+
+                losses.update(loss.item(), Ymag.size(1))
+                sdrs.update(sdr.item(), yseg.size(1))
+        return losses.avg, sdrs.avg, yseg_hat
 
 
 def get_statistics(args, encoder, dataset):
@@ -231,7 +225,7 @@ def main():
     )
     parser.add_argument(
         "--fscale",
-        choices=('bark','mel'),
+        choices=('bark','mel', 'cqlog', 'vqlog', 'oct'),
         default='bark',
         help="frequency scale for sliCQ-NSGT",
     )
@@ -268,18 +262,6 @@ def main():
         default=False,
         help="Skip dataset statistics calculation for dev purposes",
     )
-    parser.add_argument(
-        "--debug-plots",
-        action="store_true",
-        default=False,
-        help="Display plots of training process per epoch",
-    )
-    parser.add_argument(
-        "--print-shape",
-        action="store_true",
-        default=False,
-        help="Print shapes of data passing through network",
-    )
 
     # Misc Parameters
     parser.add_argument(
@@ -287,6 +269,12 @@ def main():
         action="store_true",
         default=False,
         help="less verbose during training",
+    )
+    parser.add_argument(
+        "--print-shapes",
+        action="store_true",
+        default=False,
+        help="Print shapes of data passing through network",
     )
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
@@ -321,6 +309,9 @@ def main():
     # create output dir if not exist
     target_path = Path(args.output)
     target_path.mkdir(parents=True, exist_ok=True)
+
+    tboard_path = target_path / f"logdir-{args.target}"
+    tboard_writer = SummaryWriter(tboard_path)
 
     train_sampler = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, **dataloader_kwargs
@@ -376,13 +367,13 @@ def main():
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
-        info=args.print_shape,
+        info=args.print_shapes,
     ).to(device)
 
     torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = auraloss.time.SISDRLoss()
+    sdr_criterion = auraloss.time.SISDRLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -430,8 +421,10 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer)
-        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
+        train_loss, train_sdr, last_Xmag = train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
+        valid_loss, valid_sdr, audio_sample = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion)
+
+        audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
@@ -475,9 +468,21 @@ def main():
 
         train_times.append(time.time() - end)
 
+        if tboard_writer is not None:
+            tboard_writer.add_scalar('Loss/train', train_loss, epoch)
+            tboard_writer.add_scalar('Loss/valid', valid_loss, epoch)
+            tboard_writer.add_scalar('SDR/train', train_sdr, epoch)
+            tboard_writer.add_scalar('SDR/valid', valid_sdr, epoch)
+            tboard_writer.add_audio(f"valid-sep-{epoch}", audio_sample, global_step=epoch)
+
         if stop:
             print("Apply Early Stopping")
             break
+
+    if tboard_writer is not None:
+        tboard_writer.add_graph(unmix, last_Xmag)
+        for tag, param in unmix.named_parameters():
+            tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from .filtering import atan2
 import warnings
 
 
-from .nsgt import NSGT_sliced, BarkScale, MelScale
+from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, VQLogScale, OctScale
 
 
 def phasemix_sep(X, Ymag):
@@ -51,18 +51,23 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
 
 
 class NSGTBase(nn.Module):
-    def __init__(self, scale, fbins, fmin, sllen, fs=44100, device="cuda"):
+    def __init__(self, scale, fbins, fmin, sllen, fs=44100, device="cuda", gamma=25.):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fs/2
-        self.scale = 1000.
 
         self.scl = None
         if scale == 'bark':
             self.scl = BarkScale(self.fmin, self.fmax, self.fbins)
         elif scale == 'mel':
             self.scl = MelScale(self.fmin, self.fmax, self.fbins)
+        elif scale == 'cqlog':
+            self.scl = LogScale(self.fmin, self.fmax, self.fbins)
+        elif scale == 'vqlog':
+            self.scl = VQLogScale(self.fmin, self.fmax, self.fbins, self.gamma)
+        elif scale == 'oct':
+            self.scl = OctScale(self.fmin, self.fmax, self.fbins)
         else:
             raise ValueError(f'unsupported frequency scale {scale}')
 
@@ -154,7 +159,7 @@ class NSGT_SL(nn.Module):
         # unpack batch
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
 
-        return nsgt_f*self.nsgt.scale
+        return nsgt_f
 
 
 class INSGT_SL(nn.Module):
@@ -177,8 +182,6 @@ class INSGT_SL(nn.Module):
         return self
 
     def forward(self, X: Tensor, length: int) -> Tensor:
-        X /= self.nsgt.scale
-
         Xshape = len(X.shape)
 
         X = torch.view_as_complex(X)
