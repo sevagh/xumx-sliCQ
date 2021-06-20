@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, GRU, BatchNorm1d, Conv1d, ConvTranspose1d, Conv3d, ConvTranspose3d, BatchNorm3d
+from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Tanh, LSTM, GRU, BatchNorm1d, Conv1d, ConvTranspose1d, Conv3d, ConvTranspose3d, BatchNorm3d, LeakyReLU
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep
 from collections import defaultdict
@@ -56,7 +56,7 @@ class OpenUnmix(nn.Module):
         self.bn1 = BatchNorm1d(hidden_size)
         self.act1 = Tanh()
 
-        self.rnn = LSTM(
+        self.rnn = GRU(
             input_size=hidden_size,
             hidden_size=rnn_hidden_size,
             num_layers=nb_layers,
@@ -68,10 +68,11 @@ class OpenUnmix(nn.Module):
         fc2_hiddensize = hidden_size * 2
         self.fc2 = Linear(in_features=fc2_hiddensize, out_features=hidden_size, bias=False)
         self.bn2 = BatchNorm1d(hidden_size)
-        self.act2 = ReLU()
+        self.act2 = LeakyReLU()
 
         self.fc3 = Linear(in_features=hidden_size, out_features=nb_channels*self.nb_bins*M, bias=True)
-        self.act3 = Sigmoid()
+        #self.bn3 = BatchNorm1d(nb_channels*self.nb_bins*M)
+        self.act3 = LeakyReLU()
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -83,12 +84,19 @@ class OpenUnmix(nn.Module):
         else:
             input_scale = torch.ones(self.nb_bins)
 
-        self.input_mean = Parameter(input_mean)
-        self.input_scale = Parameter(input_scale)
+        #self.input_mean = Parameter(input_mean)
+        #self.input_scale = Parameter(input_scale)
 
         self.info = info
         if self.info:
             logging.basicConfig(level=logging.INFO)
+
+        def init_weights(m):
+            if type(m) == nn.Linear:
+                torch.nn.init.xavier_uniform_(m.weight)
+                #m.bias.data.fill_(0.01)
+
+        self.apply(init_weights)
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -107,12 +115,11 @@ class OpenUnmix(nn.Module):
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
         logging.info(f'0. x shape: {x.shape}')
-        logging.info(f'0. input_mean shape: {self.input_mean.shape}')
         x = x.permute(0, 1, 3, 4, 2)
 
         # shift and scale input to mean=0 std=1 (across all bins)
-        x = x + self.input_mean[: nb_f_bins]
-        x = x * self.input_scale[: nb_f_bins]
+        #x = x + self.input_mean[: nb_f_bins]
+        #x = x * self.input_scale[: nb_f_bins]
 
         x = x.permute(0, 1, 4, 2, 3)
 
@@ -155,6 +162,7 @@ class OpenUnmix(nn.Module):
 
         # third dense stage + batch norm
         x = self.fc3(x)
+        #x = self.bn3(x)
         x = self.act3(x)
 
         logging.info(f'6. PREDICTED MASK {x.shape}')

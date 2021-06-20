@@ -4,7 +4,7 @@ musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
 musdbdebug="/home/sevagh/musdbdebug"
 outdir="umx-slicq-1"
 
-batch=32
+batch=1
 epochs=1000
 workers=4
 seqdur=6
@@ -19,9 +19,8 @@ declare -a targetargs=(
 for i in "${targetargs[@]}"
 do
 	python scripts/train.py \
-		--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-		--seq-dur=$seqdur \
+		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
+		--seq-dur=$seqdur --samples-per-track=1 --fixed-start=11 \
 		$i --skip-statistics \
-		--output "${outdir}" \
-		--source-augmentations gain channelswap
+		--output "${outdir}" --patience=1000
 done

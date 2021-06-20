@@ -34,10 +34,29 @@ loss_list_valid = []
 _BIG_SPLIT = 1_000_000
 
 
+def plot_grad_flow(named_parameters):
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean().cpu().detach().clone())
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(xmin=0, xmax=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.draw()
+    plt.pause(0.001)
+
+
 #@profile
 def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
     # unpack encoder object
-    nsgt, _, cnorm = encoder
+    nsgt, insgt, cnorm = encoder
 
     losses = utils.AverageMeter()
     unmix.train()
@@ -53,14 +72,15 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
         Ymag = cnorm(nsgt(y))
 
         # complex nsgt after phasemix inversion
-        #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        #y_hat = insgt(Y_hat, x.shape[-1])
+        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+        y_hat = insgt(Y_hat, x.shape[-1])
 
         loss = criterion(
-            Ymag_hat,
+            Ymag_hat,#y_hat,
             Ymag
         )
         loss.backward()
+        plot_grad_flow(unmix.named_parameters())
         #torch.nn.utils.clip_grad_norm_(unmix.parameters(), args.clip)
         optimizer.step()
         losses.update(loss.item(), Ymag.size(1))
@@ -69,7 +89,7 @@ def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
 
 def valid(args, unmix, encoder, device, valid_sampler, criterion):
     # unpack encoder object
-    nsgt, _, cnorm = encoder
+    nsgt, insgt, cnorm = encoder
 
     losses = utils.AverageMeter()
     unmix.eval()
@@ -81,18 +101,20 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
             xlong, y = xlong.to(device), y.to(device)
 
             # above 10,000,000 samples ooms on my 3080 ti, so split on it
-            for (x, yseg) in zip(torch.split(xlong, _BIG_SPLIT, dim=-1), torch.split(y, _BIG_SPLIT, dim=-1)):
-                X = nsgt(x)
+            for (xseg, yseg) in zip(torch.split(xlong, _BIG_SPLIT, dim=-1), torch.split(y, _BIG_SPLIT, dim=-1)):
+                X = nsgt(xseg)
                 Xmag = cnorm(X)
                 Ymag_hat = unmix(Xmag)
-                Ymag = cnorm(nsgt(yseg))
+
+                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                yseg_hat = insgt(Y_hat, xseg.shape[-1])
 
                 loss = criterion(
-                    Ymag_hat,
-                    Ymag
+                    yseg_hat,
+                    yseg
                 )
 
-                losses.update(loss.item(), Ymag.size(1))
+                losses.update(loss.item(), yseg.size(1))
         return losses.avg
 
 
@@ -317,16 +339,17 @@ def main():
         device=device
     )
 
-    nsgt, _ = transforms.make_filterbanks(
+    nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=train_dataset.sample_rate
     )
     cnorm = model.ComplexNorm(mono=args.nb_channels == 1)
 
     nsgt = nsgt.to(device)
+    insgt = insgt.to(device)
     cnorm = cnorm.to(device)
     
     # pack the 3 pieces of the encoder/decoder
-    encoder = (nsgt, None, cnorm)
+    encoder = (nsgt, insgt, cnorm)
 
     separator_conf = {
         "sample_rate": train_dataset.sample_rate,
@@ -359,7 +382,7 @@ def main():
     torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = torch.nn.MSELoss()#auraloss.time.SISDRLoss()
+    criterion = auraloss.time.SISDRLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -400,6 +423,9 @@ def main():
         valid_losses = []
         train_times = []
         best_epoch = 0
+
+    plt.ion()
+    plt.show()
 
     for epoch in t:
         t.set_description("Training Epoch")

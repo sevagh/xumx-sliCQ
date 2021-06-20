@@ -56,7 +56,7 @@ class NSGTBase(nn.Module):
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fs/2
-        self.scale = 100.
+        self.scale = 1000.
 
         self.scl = None
         if scale == 'bark':
