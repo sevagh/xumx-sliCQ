@@ -47,15 +47,6 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         X = nsgt(x)
         Xmag = cnorm(X)
 
-        print('\nXmag min: {0}, max: {1}, std: {2}, var: {3}, median: {4}, mean: {5}\n'.format(
-            torch.min(X),
-            torch.max(X),
-            torch.std(X),
-            torch.var(X),
-            torch.median(X),
-            torch.mean(X),
-        ))
-
         Ymag_hat = unmix(Xmag)
         Ymag = cnorm(nsgt(y))
 
@@ -64,8 +55,8 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         y_hat = insgt(Y_hat, x.shape[-1])
 
         loss = torch.nn.functional.mse_loss(
-            Ymag_hat,
-            Ymag
+            transforms.overlap_add_slicq(Ymag_hat),
+            transforms.overlap_add_slicq(Ymag)
         )
         sdr = sdr_criterion(y_hat, y)
 
@@ -101,8 +92,8 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion):
                 yseg_hat = insgt(Y_hat, xseg.shape[-1])
 
                 loss = torch.nn.functional.mse_loss(
-                    Ymag_hat,
-                    Ymag 
+                    transforms.overlap_add_slicq(Ymag_hat),
+                    transforms.overlap_add_slicq(Ymag)
                 )
 
                 sdr = sdr_criterion(yseg_hat, yseg)
@@ -211,7 +202,6 @@ def main():
         help="gamma of learning rate scheduler decay",
     )
     parser.add_argument("--weight-decay", type=float, default=0.00001, help="weight decay")
-    parser.add_argument("--clip", type=int, default=1, help="gradient clipping")
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
@@ -482,6 +472,8 @@ def main():
     if tboard_writer is not None:
         tboard_writer.add_graph(unmix, last_Xmag)
         for tag, param in unmix.named_parameters():
+            if 'input' in tag:
+                continue
             tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
 
 

@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Linear, Parameter, ReLU, Sigmoid, BatchNorm3d, Conv3d, ConvTranspose3d, Tanh, LSTM, BatchNorm1d
+from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Linear, Sequential
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
 import numpy as np
 import logging
@@ -43,34 +43,35 @@ class OpenUnmix(nn.Module):
         self.M = M
 
         # do 3D convolutions but don't touch the "slice" spatial dimension, which will be used for the GRU
-        channels = [nb_channels, 12, 20, 30, 40]
-        filters = [(11, 11, 42), (5, 11, 11), (3, 9, 9), (1, 3, 3)]
-        strides = [(1, 3, 5), (1, 1, 1), (1, 1, 1), (1, 1, 1)]
-        dilations = [(1, 1, 1), (1, 1, 2), (2, 1, 2), (2, 1, 2)]
-        output_paddings = [(0, 1, 2), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
+        channels = [nb_channels, 25, 55]#, 75]
+        filters = [(11, 42), (11, 42)]#, (11, 42)]
+        strides = [(1, 1), (1, 1)]#, (1, 1)]
+        dilations = [(1, 1), (1, 1)]#, (1, 1)]
+        output_paddings = [(0, 0), (0, 0)]#, (0, 0)]
 
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
+        encoder = nn.ModuleList()
+        decoder = nn.ModuleList()
 
         layers = len(filters)
 
         for i in range(layers):
-            self.encoder.extend([
-                Conv3d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
-                BatchNorm3d(channels[i+1]),
+            encoder.extend([
+                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
+                BatchNorm2d(channels[i+1]),
                 ReLU(),
             ])
 
-        for i in range(layers,1,-1):
-            self.decoder.extend([
-                ConvTranspose3d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
-                BatchNorm3d(channels[i-1]),
+        for i in range(layers,0,-1):
+            decoder.extend([
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
+                BatchNorm2d(channels[i-1]),
                 ReLU(),
             ])
 
-        # last layer has special activation
-        self.decoder.append(ConvTranspose3d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0], bias=True))
-        self.decoder.append(Sigmoid())
+        self.cdae = Sequential(*encoder, *decoder)
+
+        self.fc1 = Linear(in_features=self.M//2, out_features=self.M, bias=True)
+        self.act1 = Sigmoid()
         self.mask = True
 
         if input_mean is not None:
@@ -106,48 +107,41 @@ class OpenUnmix(nn.Module):
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
-        x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
         # permute so that batch is last for lstm
-        x = x.permute(3, 0, 1, 2)
+        #x = x.permute(3, 0, 1, 2)
 
         logging.info(f'0. {x.shape}')
 
         # shift and scale input to mean=0 std=1 (across all bins)
-        x = x + self.input_mean[: self.nb_bins]
-        x = x * self.input_scale[: self.nb_bins]
+        #x = x + self.input_mean[: self.nb_bins]
+        #x = x * self.input_scale[: self.nb_bins]
 
-        logging.info(f'1. POST-SCALE {x.shape}')
+        #logging.info(f'1. POST-SCALE {x.shape}')
 
-        x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
+        #x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
+        x = overlap_add_slicq(x)
 
-        logging.info(f'2. PRE-ENCODER {x.shape}')
+        logging.info(f'2. PRE-CDAE {x.shape}')
 
-        for i, layer in enumerate(self.encoder):
+        for i, layer in enumerate(self.cdae):
             sh1 = x.shape
             x = layer(x)
             sh2 = x.shape
-            logging.info(f'\t2-{i} ENCODER {sh1} -> {sh2}')
+            logging.info(f'\t2-{i} CDAE {sh1} -> {sh2}')
 
-        post_enc_shape = x.shape
-        logging.info(f'3. POST-ENCODER {x.shape}')
+        logging.info(f'3. POST-CDAE {x.shape}')
 
-        nb_samples, nb_conv_channels, _, nb_f_conv, nb_m_conv = x.shape
+        x = x.reshape(-1, nb_m_bins//2)
+        x = self.fc1(x)
+        x = self.act1(x)
 
-        logging.info(f'4. PRE-DECODER {x.shape}')
+        logging.info(f'4. POST-LINEAR {x.shape}')
 
-        for layer in self.decoder:
-            sh1 = x.shape
-            x = layer(x)
-            sh2 = x.shape
-            logging.info(f'\t4-{i} DECODER {sh1} -> {sh2}')
+        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
 
-        logging.info(f'5. POST-DECODER {x.shape}')
-
-        x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
-        x = x.permute(0, 1, 3, 2, 4)
-
-        logging.info(f'6. mix {mix.shape}')
+        logging.info(f'5. mix {mix.shape}')
 
         if self.mask:
             x = x*mix

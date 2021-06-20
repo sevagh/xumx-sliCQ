@@ -7,7 +7,7 @@ outdir="umx-slicq-1"
 batch=1
 epochs=100
 workers=4
-seqdur=3
+seqdur=6
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -26,5 +26,5 @@ do
 		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
 		--seq-dur=$seqdur --samples-per-track=1 --fixed-start=11 \
 		$i --skip-statistics --print-shapes \
-		--output "${outdir}" --patience=100
+		--output "${outdir}" --patience=1000
 done
