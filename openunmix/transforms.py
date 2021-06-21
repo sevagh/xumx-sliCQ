@@ -30,11 +30,10 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
     return encoder, decoder
 
 
-def _assemble_coefs(cqts, ncoefs, skip_dB=True):
+def _assemble_coefs(cqts, ncoefs):
     """
     Build a sequence of blocks out of incoming overlapping CQT slices
     """
-    # ([1, 140, 2, 117, 244])
     cqts = cqts.permute(0, 3, 1, 2, 4)
 
     mlses = []
@@ -64,7 +63,8 @@ def _assemble_coefs(cqts, ncoefs, skip_dB=True):
     return mls
 
 
-def coefs_to_db(mls):
+# for plotting
+def coefs_to_db(mls, pooling=None):
     # compute magnitude spectrum
     mindb = -100.
     mls = torch.abs(mls)

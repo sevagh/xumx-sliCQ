@@ -4,10 +4,10 @@ musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
 musdbdebug="/home/sevagh/musdbdebug"
 outdir="umx-slicq-1"
 
-batch=14
+batch=1
 epochs=1000
 workers=4
-seqdur=3
+seqdur=1
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -23,8 +23,8 @@ declare -a targetargs=(
 for i in "${targetargs[@]}"
 do
 	python scripts/train.py \
-		--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-		--seq-dur=$seqdur --samples-per-track=16 \
-		$i \
+		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
+		--seq-dur=$seqdur --samples-per-track=1 --fixed-start=23.6 \
+		$i --print-shapes \
 		--output "${outdir}" --patience=1000
 done

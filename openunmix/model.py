@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Sequential, ConvTranspose2d, Dropout, Linear, LSTM, GRU, Tanh, BatchNorm1d, BatchNorm3d
+from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool1d, MaxUnpool1d, ConvTranspose2d, Conv2d, Sequential, Sigmoid
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, coefs_to_db
 from collections import defaultdict
@@ -27,7 +27,9 @@ class OpenUnmix(nn.Module):
         nb_bins,
         M,
         nb_channels=2,
-        nb_layers=2,
+        nb_layers=3,
+        hidden_size=512,
+        temporal_pooling=13,
         unidirectional=False,
         info=False,
     ):
@@ -36,55 +38,73 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        channels = [
-            nb_channels, 20, 40, 60, 80
-        ]
-        filters = [
-            (3, 3), (5, 5), (7, 7), (9, 9)
-        ]
-        strides = [
-            (3, 5), (1, 1), (3, 5), (1, 1)
-        ]
-        dilations = [
-            (1, 1), (1, 1), (1, 1), (1, 1)
-        ]
-        output_paddings = [
-            (0, 0), (0, 0), (1, 3), (0, 0)
-        ]
+        #hidden_size = nb_bins
+        self.hidden_size = hidden_size
 
-        encoder = nn.ModuleList()
-        decoder = nn.ModuleList()
-        layers = len(filters)-1
+        self.temporal_pooling = temporal_pooling
 
+        # dont do input whitening, just use batchnorms
         self.whiten2d = BatchNorm2d(nb_channels)
         self.whiten3d = BatchNorm3d(nb_channels)
 
-        for i in range(layers):
-            encoder.extend([
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
-                BatchNorm2d(channels[i+1]),
-                ReLU(),
-            ])
+        self.mp = MaxPool1d(temporal_pooling, temporal_pooling, return_indices=True)
+        self.mup = MaxUnpool1d(temporal_pooling, temporal_pooling)
 
-        for i in range(layers,0,-1):
-            decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
-                BatchNorm2d(channels[i-1]),
-                ReLU(),
-            ])
+        if unidirectional:
+            rnn_layers = nb_layers
+            rnn_hidden_size = hidden_size
+        else:
+            rnn_layers = 2*nb_layers
+            rnn_hidden_size = hidden_size // 2
 
-        self.cdae = Sequential(*encoder, *decoder)
-
-        self.postgrow = Sequential(
-            ConvTranspose2d(nb_channels, 10, (1, 23), stride=(1, 2), bias=False),
-            BatchNorm2d(10),
-            ReLU(),
-            ConvTranspose2d(10, nb_channels, 1, bias=False),
-            BatchNorm2d(nb_channels),
-            ReLU(),
+        self.fc1 = Sequential(
+            Linear(in_features=nb_channels*self.nb_bins, out_features=hidden_size, bias=False),
+            BatchNorm1d(hidden_size),
+            Tanh()
         )
 
-        self.mask = False
+        self.rnn = LSTM(
+            input_size=hidden_size,
+            hidden_size=rnn_hidden_size,
+            num_layers=nb_layers,
+            bidirectional=not unidirectional,
+            batch_first=False,
+            #dropout=0.4 if nb_layers > 1 else 0,
+        )
+
+        fc2_hiddensize = hidden_size * 2 - (hidden_size % 2)
+        self.fc2 = Sequential(
+            Linear(in_features=fc2_hiddensize, out_features=hidden_size, bias=False),
+            BatchNorm1d(hidden_size),
+            ReLU()
+        )
+
+        self.fc3 = Sequential(
+            Linear(in_features=hidden_size, out_features=nb_channels*self.nb_bins, bias=True),
+            BatchNorm1d(nb_channels*self.nb_bins),
+            ReLU()
+        )
+
+        self.postgrow = Sequential(
+            ConvTranspose2d(nb_channels, 10, (1, 246), stride=(1, 2), bias=False),
+            BatchNorm2d(10),
+            ReLU(),
+            ConvTranspose2d(10, 20, 1, bias=False),
+            BatchNorm2d(20),
+            ReLU(),
+            ConvTranspose2d(20, 30, 1, bias=False),
+            BatchNorm2d(30),
+            ReLU(),
+            Conv2d(30, 20, 1, bias=False),
+            BatchNorm2d(20),
+            ReLU(),
+            Conv2d(20, 10, 1, bias=False),
+            BatchNorm2d(10),
+            ReLU(),
+            ConvTranspose2d(10, nb_channels, 1, bias=True),
+            #BatchNorm2d(nb_channels),
+            Sigmoid(),
+        )
 
         self.info = info
         if self.info:
@@ -101,51 +121,92 @@ class OpenUnmix(nn.Module):
         if self.info:
             print()
 
+        logging.info(f'-1. x {x.shape}')
+        logging.info(f'-1. x3d {x3d.shape}')
+
         mix = x3d.detach().clone()
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x3d.shape
         x = x.permute(0, 3, 2, 1)
 
         x3d = self.whiten3d(x3d)
+
+        x = coefs_to_db(x)
         x = self.whiten2d(x)
 
-        #x = coefs_to_db(x)
+        logging.info(f'0. x {x.shape}')
+        logging.info(f'0. x3d {x3d.shape}')
+        logging.info(f'0. mix {mix.shape}')
 
-        logging.info(f'0. 3D-SLICQ {x3d.shape}')
-        logging.info(f'0. DESIRED OUT SIZE {x3d.reshape(*x3d.shape[:-2], x3d.shape[-1]*x3d.shape[-2]).shape}')
-        logging.info(f'1. PRE-CDAE {x.shape}')
+        logging.info(f'1. PRE-MAXPOOL {x.shape}')
 
-        for i, layer in enumerate(self.cdae):
-            sh1 = x.shape
-            x = layer(x)
-            sh2 = x.shape
-            logging.info(f'\t2-{i} CDAE {sh1} -> {sh2}')
+        # stack channels on fbins
+        x = x.reshape(nb_samples, nb_channels*nb_f_bins, -1)
+        unpool_size = x.size()
+        x, pool_inds = self.mp(x)
 
-        logging.info(f'3. POST-CDAE {x.shape}')
+        logging.info(f'2. POST-MAXPOOL {x.shape}')
 
-        logging.info(f'4. PRE-GROW {x.shape}')
+        x = x.reshape(-1, nb_channels*nb_f_bins)
+
+        logging.info(f'3. PRE-LINEAR-1 {x.shape}')
+
+        # first dense stage + batch norm
+        x = self.fc1(x)
+
+        logging.info(f'4. POST-LINEAR-1 {x.shape}')
+
+        # to (nb_frames*nb_samples, nb_channels*nb_bins)
+        # and encode to (nb_frames*nb_samples, hidden_size)
+        x = x.reshape(-1, nb_samples, self.hidden_size)
+
+        logging.info(f'5. PRE-LSTM {x.shape}')
+
+        # apply 3-layers of stacked LSTM
+        rnn_out, _ = self.rnn(x)
+
+        logging.info(f'6. LSTM {rnn_out.shape}')
+
+        # lstm skip connection
+        x = torch.cat([x, rnn_out], -1)
+        x = x.reshape(-1, x.shape[-1])
+
+        logging.info(f'7. SKIP-CONN {x.shape}')
+
+        logging.info(f'8. PRE-LINEAR-2 {x.shape}')
+
+        # second dense stage
+        x = self.fc2(x)
+
+        logging.info(f'9. PRE-LINEAR-3 {x.shape}')
+
+        x = self.fc3(x)
+
+        logging.info(f'9. PRE-PRE-MAX-UNPOOL-3 {x.shape}')
+
+        # reshape back to original dim
+        x = x.reshape(nb_samples, nb_channels*nb_f_bins, -1)
+        logging.info(f'10. PRE-MAX-UNPOOL-3 {x.shape}')
+
+        x = self.mup(x, pool_inds, output_size=unpool_size)
+
+        logging.info(f'11. PRED SLICQ-SPECTROGRAM {x.shape}')
         x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
-        logging.info(f'5. GROW {x.shape}')
-
+        logging.info(f'12. PRE-GROW {x.shape}')
         for i, layer in enumerate(self.postgrow):
             sh1 = x.shape
             x = layer(x)
             sh2 = x.shape
-            logging.info(f'\t5-{i} GROW {sh1} -> {sh2}')
+            logging.info(f'12. GROW: {sh1} -> {sh2}')
 
-        logging.info(f'6. POST-GROW {x.shape}')
+        mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices*nb_m_bins)
 
-        mix = mix.reshape(*mix.shape[:-2], mix.shape[-2]*mix.shape[-1])
+        logging.info(f'13. POST-GROW {x.shape}')
+        logging.info(f'13. mix {mix.shape}')
 
-        if self.mask:
-            mix[..., : x.shape[-1]] *= x
-        else:
-            mix[..., : x.shape[-1]] = x
-
-        logging.info(f'7. PREDICTED MASK {x.shape}')
-        logging.info(f'7. mix {mix.shape}')
-
+        # mask as much as we predicted, we can't grow exactly
+        mix[..., : x.shape[-1]] *= x
         mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
         return mix
 
