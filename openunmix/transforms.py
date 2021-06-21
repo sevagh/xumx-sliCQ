@@ -8,7 +8,6 @@ import torch.nn as nn
 from .filtering import atan2
 import warnings
 
-
 from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, VQLogScale, OctScale
 
 
@@ -29,6 +28,53 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
     decoder = INSGT_SL(nsgt_base)
 
     return encoder, decoder
+
+
+def _assemble_coefs(cqts, ncoefs, skip_dB=True):
+    """
+    Build a sequence of blocks out of incoming overlapping CQT slices
+    """
+    # ([1, 140, 2, 117, 244])
+    cqts = cqts.permute(0, 3, 1, 2, 4)
+
+    mlses = []
+    for cqt in cqts:
+        cqt = iter(cqt)
+        cqt0 = next(cqt)
+        cq0 = cqt0.clone().detach().requires_grad_(True).T
+        shh = cq0.shape[0]//2
+        out = torch.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype, device=cq0.device)
+        
+        fr = 0
+        sh = max(0, min(shh, ncoefs-fr))
+        out[fr:fr+sh] = cq0[sh:] # store second half
+        # add up slices
+        for cqi in cqt:
+            cqi = cqi.clone().detach().requires_grad_(True).T
+            out[fr:fr+sh] += cqi[:sh]
+            cqi = cqi[sh:]
+            fr += sh
+            sh = max(0, min(shh, ncoefs-fr))
+            out[fr:fr+sh] = cqi[:sh]
+            
+        coefs = out[:fr]
+
+        mls = coefs.detach().clone()
+        mlses.append(mls)
+
+    mls = torch.cat([torch.unsqueeze(mls_, dim=0) for mls_ in mlses], dim=0)
+    return mls
+
+
+def coefs_to_db(mls):
+    # compute magnitude spectrum
+    mindb = -100.
+    mls = torch.abs(mls)
+    mindb = torch.empty_like(mls).fill_(10**(mindb/20.))
+    mls = torch.maximum(mls, mindb)
+    mls = torch.log10(mls)
+    mls *= 20.
+    return mls
 
 
 class NSGTBase(nn.Module):
@@ -142,6 +188,23 @@ class NSGT_SL(nn.Module):
 
         return nsgt_f
 
+    def assemble_coefs(self, cqt, N):
+        ncoefs = int(N*self.nsgt.nsgt.coef_factor)
+        return _assemble_coefs(cqt, ncoefs)
+
+    def plot_spectrogram(self, mls, ax):
+        assert mls.shape[0] == 1
+        # remove batch
+        mls = torch.squeeze(mls, dim=0)
+        # mix down multichannel
+        mls = torch.mean(mls, dim=-1)
+        fs_coef = self.nsgt.fs*self.nsgt.nsgt.coef_factor
+        mls_dur = len(mls)/fs_coef # final duration of MLS
+        mls_max = torch.quantile(mls, 0.999)
+
+        mls = mls.detach().cpu().numpy()
+        ax.imshow(mls.T, aspect=mls_dur/mls.shape[1]*0.2, interpolation='nearest', origin='lower', vmin=mls_max-60., vmax=mls_max, extent=(0,mls_dur,0,mls.shape[1]))
+
 
 class INSGT_SL(nn.Module):
     '''
@@ -212,7 +275,7 @@ class ComplexNorm(nn.Module):
                 `(...,)`
         """
         # take the magnitude
-        spec = torch.abs(torch.view_as_complex(spec))#, power=self.power)
+        spec = torch.pow(torch.abs(torch.view_as_complex(spec)), self.power)
 
         # downmix in the mag domain to preserve energy
         if self.mono:

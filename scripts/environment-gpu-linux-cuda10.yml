@@ -27,3 +27,4 @@ dependencies:
     - line_profiler
     - torch_lr_finder
     - tensorboard
+    - torchvision

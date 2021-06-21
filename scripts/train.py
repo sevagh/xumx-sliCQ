@@ -9,6 +9,7 @@ import numpy as np
 import random
 from git import Repo
 import os
+import io
 import copy
 import sys
 import torchaudio
@@ -18,6 +19,8 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 from torch_lr_finder import LRFinder, TrainDataLoaderIter
 import auraloss
+import torchvision
+import torchvision.io
 from torch.utils.tensorboard import SummaryWriter
 
 from openunmix import data
@@ -28,8 +31,7 @@ from openunmix import filtering
 
 tqdm.monitor_interval = 0
 
-#_BIG_SPLIT = 2_000_000
-_BIG_SPLIT = 4*44100
+_BIG_SPLIT = 5_000_000
 
 
 def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer):
@@ -48,29 +50,33 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         X = nsgt(x)
         Xmag = cnorm(X)
 
-        Ymag_hat = unmix(Xmag)
+        Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
+        Ymag_hat = unmix(Xmag_spectrogram)
         Ymag = cnorm(nsgt(y))
 
         # complex nsgt after phasemix inversion
-        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        y_hat = insgt(Y_hat, x.shape[-1])
+        #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+        #y_hat = insgt(Y_hat, x.shape[-1])
+
+        #Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
+        Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
 
         loss = torch.nn.functional.mse_loss(
             Ymag_hat,
-            Ymag,
+            Ymag_spectrogram,
         )
 
-        sdr = sdr_criterion(y_hat, y)
+        #sdr = sdr_criterion(y_hat, y)
 
         loss.backward()
         optimizer.step()
         losses.update(loss.item(), Ymag.size(1))
-        sdrs.update(sdr.item(), y.size(1))
+        #sdrs.update(sdr.item(), y.size(1))
 
-    return losses.avg, sdrs.avg, Xmag
+    return losses.avg, losses.avg, Xmag
 
 
-def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion):
+def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -79,30 +85,39 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion):
     unmix.eval()
     with torch.no_grad():
         pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
-        for xlong, y in pbar:
+        for xlong, ylong in pbar:
             pbar.set_description("Validation batch")
-            xlong, y = xlong.to(device), y.to(device)
+            xlong, ylong = xlong.to(device), ylong.to(device)
 
-            # above 10,000,000 samples ooms on my 3080 ti, so split on it
-            for (xseg, yseg) in zip(torch.split(xlong, _BIG_SPLIT, dim=-1), torch.split(y, _BIG_SPLIT, dim=-1)):
-                X = nsgt(xseg)
+            for x, y in zip(
+                torch.split(xlong, _BIG_SPLIT, dim=-1),
+                torch.split(ylong, _BIG_SPLIT, dim=-1)
+            ):
+                X = nsgt(x)
                 Xmag = cnorm(X)
-                Ymag_hat = unmix(Xmag)
-                Ymag = cnorm(nsgt(yseg))
+                Ymag = cnorm(nsgt(y))
 
-                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-                yseg_hat = insgt(Y_hat, xseg.shape[-1])
+                Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
+                Ymag_hat = unmix(Xmag_spectrogram)
+
+                #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                #y_hat = insgt(Y_hat, x.shape[-1])
+
+                #Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
+                Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
 
                 loss = torch.nn.functional.mse_loss(
                     Ymag_hat,
-                    Ymag
+                    Ymag_spectrogram,
                 )
 
-                sdr = sdr_criterion(yseg_hat, yseg)
+                #sdr = sdr_criterion(y_hat, y)
 
                 losses.update(loss.item(), Ymag.size(1))
-                sdrs.update(sdr.item(), yseg.size(1))
-        return losses.avg, sdrs.avg, yseg_hat
+                #sdrs.update(sdr.item(), y.size(1))
+
+        Xmag_spectrogram = nsgt.assemble_coefs(Xmag, y.shape[-1])
+        return losses.avg, losses.avg, y, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat
 
 
 def get_statistics(args, encoder, dataset):
@@ -352,6 +367,7 @@ def main():
         scaler_std = torch.tensor(scaler_std, device=device)
 
     slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
+    seq_batch = slicq_shape[-2]
 
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
@@ -362,7 +378,7 @@ def main():
         info=args.print_shapes,
     ).to(device)
 
-    torchinfo.summary(unmix, input_size=slicq_shape)
+    #torchinfo.summary(unmix, input_size=slicq_shape)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sdr_criterion = auraloss.time.SISDRLoss()
@@ -407,14 +423,13 @@ def main():
         train_times = []
         best_epoch = 0
 
-    plt.ion()
-    plt.show()
+    fig, axs = plt.subplots(3)
 
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
         train_loss, train_sdr, last_Xmag = train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
-        valid_loss, valid_sdr, audio_sample = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion)
+        valid_loss, valid_sdr, audio_sample, X_spec, Y_spec, Y_spec_hat = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 
@@ -461,6 +476,21 @@ def main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
+            nsgt.plot_spectrogram(transforms.coefs_to_db(X_spec), axs[0])
+            nsgt.plot_spectrogram(transforms.coefs_to_db(Y_spec), axs[1])
+            nsgt.plot_spectrogram(transforms.coefs_to_db(Y_spec_hat), axs[2])
+
+            io_buf = io.BytesIO()
+            fig.savefig(io_buf, format='png')
+            io_buf.seek(0)
+            img = torch.ByteTensor(torch.ByteStorage.from_buffer(io_buf.getvalue()))
+
+            image = torchvision.io.decode_png(img)
+            #img_arr = np.reshape(np.frombuffer(io_buf.getvalue(), dtype=np.uint8),
+            #                     newshape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
+            #io_buf.close()
+
+            tboard_writer.add_image(f'sliCQ-spectrograms-{epoch}', image, global_step=epoch)
             tboard_writer.add_scalar('Loss/train', train_loss, epoch)
             tboard_writer.add_scalar('Loss/valid', valid_loss, epoch)
             tboard_writer.add_scalar('SDR/train', train_sdr, epoch)
