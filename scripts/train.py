@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 import tqdm
 import json
-import sklearn.preprocessing
 import numpy as np
 import random
 from git import Repo
@@ -134,42 +133,6 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
         return losses.avg, sdrs.avg, y, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram
 
 
-def get_statistics(args, encoder, dataset):
-    nsgt, _, cnorm = encoder
-    enc = torch.nn.Sequential(nsgt, cnorm)
-
-    encoder = copy.deepcopy(enc).to("cpu")
-    scaler = sklearn.preprocessing.StandardScaler()
-
-    dataset_scaler = copy.deepcopy(dataset)
-    if isinstance(dataset_scaler, data.SourceFolderDataset):
-        dataset_scaler.random_chunks = False
-    else:
-        dataset_scaler.random_chunks = False
-        dataset_scaler.seq_duration = None
-
-    dataset_scaler.samples_per_track = 1
-    dataset_scaler.augmentations = None
-    dataset_scaler.random_track_mix = False
-    dataset_scaler.random_interferer_mix = False
-
-    pbar = tqdm.tqdm(range(len(dataset_scaler)), disable=args.quiet)
-
-    for ind in pbar:
-        x, y = dataset_scaler[ind]
-        pbar.set_description("Compute dataset statistics")
-
-        # downmix to mono channel
-        # norm across frequency bins
-        X = encoder(x[None, ...]).mean(1, keepdim=False).permute(0, 2, 1, 3)
-        X = X.reshape(-1, X.shape[-2])
-        scaler.partial_fit(np.squeeze(X))
-
-    # set inital input scaler values
-    std = np.maximum(scaler.scale_, 1e-4 * np.max(scaler.scale_))
-    return scaler.mean_, std
-
-
 def main():
     parser = argparse.ArgumentParser(description="Open Unmix Trainer")
 
@@ -277,12 +240,6 @@ def main():
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
     )
-    parser.add_argument(
-        "--skip-statistics",
-        action="store_true",
-        default=False,
-        help="Skip dataset statistics calculation for dev purposes",
-    )
 
     # Misc Parameters
     parser.add_argument(
@@ -372,14 +329,6 @@ def main():
     with open(Path(target_path, "separator.json"), "w") as outfile:
         outfile.write(json.dumps(separator_conf, indent=4, sort_keys=True))
 
-    if args.model or args.skip_statistics:
-        scaler_mean = None
-        scaler_std = None
-    else:
-        scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset)
-        scaler_mean = torch.tensor(scaler_mean, device=device)
-        scaler_std = torch.tensor(scaler_std, device=device)
-
     slicq, slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
     seq_batch = slicq_shape[-2]
     slicq = cnorm(slicq)
@@ -387,8 +336,6 @@ def main():
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
         nsgt_base.M,
-        input_mean=scaler_mean,
-        input_scale=scaler_std,
         nb_channels=args.nb_channels,
         info=args.print_shapes,
     ).to(device)

@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Sequential, ConvTranspose2d, Dropout, Linear, LSTM, GRU, Tanh, BatchNorm1d
+from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Sequential, ConvTranspose2d, Dropout, Linear, LSTM, GRU, Tanh, BatchNorm1d, BatchNorm3d
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, coefs_to_db
 from collections import defaultdict
 import numpy as np
 import logging
@@ -20,10 +20,6 @@ class OpenUnmix(nn.Module):
     Args:
         nb_bins, M (int): Number of sliCQ-NSGT tf bins
         nb_channels (int): Number of input audio channels (Default: `2`).
-        input_mean (ndarray or None): global data mean of shape `(nb_bins, )`.
-            Defaults to zeros(nb_bins)
-        input_scale (ndarray or None): global data mean of shape `(nb_bins, )`.
-            Defaults to ones(nb_bins)
     """
 
     def __init__(
@@ -33,8 +29,6 @@ class OpenUnmix(nn.Module):
         nb_channels=2,
         nb_layers=2,
         unidirectional=False,
-        input_mean=None,
-        input_scale=None,
         info=False,
     ):
         super(OpenUnmix, self).__init__()
@@ -43,25 +37,27 @@ class OpenUnmix(nn.Module):
         self.M = M
 
         channels = [
-            nb_channels, 25, 55, 75, 125
+            nb_channels, 20, 40, 60, 80
         ]
         filters = [
-            (11, 42), (11, 23), (3, 3), (1, 1)
+            (3, 3), (5, 5), (7, 7), (9, 9)
         ]
         strides = [
-            (1, 1), (3, 5), (1, 1), (1, 1)
+            (3, 5), (1, 1), (3, 5), (1, 1)
         ]
         dilations = [
             (1, 1), (1, 1), (1, 1), (1, 1)
         ]
         output_paddings = [
-            (0, 0), (0, 0), (0, 0), (0, 0)
+            (0, 0), (0, 0), (1, 3), (0, 0)
         ]
 
         encoder = nn.ModuleList()
         decoder = nn.ModuleList()
-
         layers = len(filters)-1
+
+        self.whiten2d = BatchNorm2d(nb_channels)
+        self.whiten3d = BatchNorm3d(nb_channels)
 
         for i in range(layers):
             encoder.extend([
@@ -79,23 +75,16 @@ class OpenUnmix(nn.Module):
 
         self.cdae = Sequential(*encoder, *decoder)
 
-        # 1x1 dim grower
-        self.grow = ConvTranspose2d(nb_channels, nb_channels, (1, 23), stride=(1, 2))
-        self.act = Sigmoid()
-        self.mask = True
+        self.postgrow = Sequential(
+            ConvTranspose2d(nb_channels, 10, (1, 23), stride=(1, 2), bias=False),
+            BatchNorm2d(10),
+            ReLU(),
+            ConvTranspose2d(10, nb_channels, 1, bias=False),
+            BatchNorm2d(nb_channels),
+            ReLU(),
+        )
 
-        if input_mean is not None:
-            input_mean = (-input_mean).float()
-        else:
-            input_mean = torch.zeros(self.nb_bins)
-
-        if input_scale is not None:
-            input_scale = (1.0 / input_scale).float()
-        else:
-            input_scale = torch.ones(self.nb_bins)
-
-        self.input_mean = Parameter(input_mean)
-        self.input_scale = Parameter(input_scale)
+        self.mask = False
 
         self.info = info
         if self.info:
@@ -117,6 +106,11 @@ class OpenUnmix(nn.Module):
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x3d.shape
         x = x.permute(0, 3, 2, 1)
 
+        x3d = self.whiten3d(x3d)
+        x = self.whiten2d(x)
+
+        #x = coefs_to_db(x)
+
         logging.info(f'0. 3D-SLICQ {x3d.shape}')
         logging.info(f'0. DESIRED OUT SIZE {x3d.reshape(*x3d.shape[:-2], x3d.shape[-1]*x3d.shape[-2]).shape}')
         logging.info(f'1. PRE-CDAE {x.shape}')
@@ -129,13 +123,18 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'3. POST-CDAE {x.shape}')
 
-        logging.info(f'4. PRE-PRE-CONV2D-GROW {x.shape}')
+        logging.info(f'4. PRE-GROW {x.shape}')
         x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
-        logging.info(f'5. PRE-CONV2D-GROW {x.shape}')
-        x = self.grow(x)
-        x = self.act(x)
 
-        logging.info(f'6. POST-CONV2D-GROW {x.shape}')
+        logging.info(f'5. GROW {x.shape}')
+
+        for i, layer in enumerate(self.postgrow):
+            sh1 = x.shape
+            x = layer(x)
+            sh2 = x.shape
+            logging.info(f'\t5-{i} GROW {sh1} -> {sh2}')
+
+        logging.info(f'6. POST-GROW {x.shape}')
 
         mix = mix.reshape(*mix.shape[:-2], mix.shape[-2]*mix.shape[-1])
 
