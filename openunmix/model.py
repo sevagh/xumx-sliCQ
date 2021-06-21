@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm2d, Conv2d, ConvTranspose2d, Linear, Sequential
+from torch.nn import Parameter, ReLU, Sigmoid, BatchNorm3d, Conv3d, ConvTranspose3d, Sequential, ConvTranspose3d, Dropout
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase
 from collections import defaultdict
 import numpy as np
 import logging
@@ -32,7 +32,6 @@ class OpenUnmix(nn.Module):
         M,
         nb_channels=2,
         unidirectional=False,
-        nb_layers=1,
         input_mean=None,
         input_scale=None,
         info=False,
@@ -42,37 +41,46 @@ class OpenUnmix(nn.Module):
         self.nb_bins = nb_bins
         self.M = M
 
-        # do 3D convolutions but don't touch the "slice" spatial dimension, which will be used for the GRU
-        channels = [nb_channels, 25, 55]#, 75]
-        filters = [(11, 42), (11, 42)]#, (11, 42)]
-        strides = [(1, 1), (1, 1)]#, (1, 1)]
-        dilations = [(1, 1), (1, 1)]#, (1, 1)]
-        output_paddings = [(0, 0), (0, 0)]#, (0, 0)]
+        channels = [
+            nb_channels, 12, 20, 30, 40, 80
+        ]
+        filters = [
+            (3, 3, 3), (3, 3, 3), (3, 3, 3), (3, 3, 3), (3, 3, 3)
+        ]
+        strides = [
+            (1, 1, 3), (1, 1, 1), (1, 1, 3), (1, 1, 1), (1, 1, 1)
+        ]
+        dilations = [
+            (1, 1, 1), (1, 1, 1), (1, 1, 1), (1, 1, 1), (1, 1, 1)
+        ]
+        output_paddings = [
+            (0, 0, 1), (0, 0, 0), (0, 0, 1), (0, 0, 0), (0, 0, 0)
+        ]
 
         encoder = nn.ModuleList()
         decoder = nn.ModuleList()
 
-        layers = len(filters)
+        layers = len(filters)-1
 
         for i in range(layers):
             encoder.extend([
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
-                BatchNorm2d(channels[i+1]),
+                Conv3d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
+                BatchNorm3d(channels[i+1]),
                 ReLU(),
             ])
 
-        for i in range(layers,0,-1):
+        for i in range(layers,1,-1):
             decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
-                BatchNorm2d(channels[i-1]),
+                ConvTranspose3d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
+                BatchNorm3d(channels[i-1]),
                 ReLU(),
             ])
+
+        decoder.append(ConvTranspose3d(channels[1], channels[0], filters[0], stride=strides[0], dilation=dilations[0], output_padding=output_paddings[0], bias=True))
+        decoder.append(Sigmoid())
 
         self.cdae = Sequential(*encoder, *decoder)
-
-        self.fc1 = Linear(in_features=self.M//2, out_features=self.M, bias=True)
-        self.act1 = Sigmoid()
-        self.mask = True
+        self.mask = False
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -107,11 +115,6 @@ class OpenUnmix(nn.Module):
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
-        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, -1)
-
-        # permute so that batch is last for lstm
-        #x = x.permute(3, 0, 1, 2)
-
         logging.info(f'0. {x.shape}')
 
         # shift and scale input to mean=0 std=1 (across all bins)
@@ -119,9 +122,6 @@ class OpenUnmix(nn.Module):
         #x = x * self.input_scale[: self.nb_bins]
 
         #logging.info(f'1. POST-SCALE {x.shape}')
-
-        #x = x.reshape(nb_samples, nb_channels, nb_slices, nb_f_bins, nb_m_bins)
-        x = overlap_add_slicq(x)
 
         logging.info(f'2. PRE-CDAE {x.shape}')
 
@@ -133,15 +133,10 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'3. POST-CDAE {x.shape}')
 
-        x = x.reshape(-1, nb_m_bins//2)
-        x = self.fc1(x)
-        x = self.act1(x)
+        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
 
-        logging.info(f'4. POST-LINEAR {x.shape}')
-
-        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-
-        logging.info(f'5. mix {mix.shape}')
+        logging.info(f'4. mask {x.shape}')
+        logging.info(f'4. mix {mix.shape}')
 
         if self.mask:
             x = x*mix

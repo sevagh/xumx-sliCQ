@@ -28,7 +28,8 @@ from openunmix import filtering
 
 tqdm.monitor_interval = 0
 
-_BIG_SPLIT = 1_000_000
+#_BIG_SPLIT = 2_000_000
+_BIG_SPLIT = 4*44100
 
 
 def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer):
@@ -55,9 +56,10 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         y_hat = insgt(Y_hat, x.shape[-1])
 
         loss = torch.nn.functional.mse_loss(
-            transforms.overlap_add_slicq(Ymag_hat),
-            transforms.overlap_add_slicq(Ymag)
+            Ymag_hat,
+            Ymag,
         )
+
         sdr = sdr_criterion(y_hat, y)
 
         loss.backward()
@@ -92,8 +94,8 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion):
                 yseg_hat = insgt(Y_hat, xseg.shape[-1])
 
                 loss = torch.nn.functional.mse_loss(
-                    transforms.overlap_add_slicq(Ymag_hat),
-                    transforms.overlap_add_slicq(Ymag)
+                    Ymag_hat,
+                    Ymag
                 )
 
                 sdr = sdr_criterion(yseg_hat, yseg)

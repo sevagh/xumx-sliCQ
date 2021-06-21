@@ -21,26 +21,6 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def overlap_add_slicq(cqt):
-    nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = cqt.shape
-
-    cqt = cqt.reshape(nb_samples, nb_channels, nb_f_bins, -1)
-
-    # x can be overlap-added on the time dimension to compress the slicq
-    shh = nb_m_bins//2
-    cqt_ = torch.empty((nb_samples, nb_channels, nb_f_bins, cqt.shape[-1]//2), dtype=cqt.dtype, device=cqt.device)
-    fr = 0
-    fr_ = 0
-
-    for i in range(nb_slices):
-        cqt_[..., fr:fr+shh] += cqt[..., fr_:fr_+shh]
-        fr += shh
-        fr_ += nb_m_bins
-
-    # final shape is (samples, channels, frequency, time)
-    return cqt_
-
-
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
     if sample_rate != 44100.0:
         raise ValueError('i was lazy and harcoded a lot of 44100.0, forgive me')
