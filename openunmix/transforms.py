@@ -58,9 +58,7 @@ def _assemble_coefs(cqts, ncoefs, skip_dB=True):
             out[fr:fr+sh] = cqi[:sh]
             
         coefs = out[:fr]
-
-        mls = coefs.detach().clone()
-        mlses.append(mls)
+        mlses.append(coefs)
 
     mls = torch.cat([torch.unsqueeze(mls_, dim=0) for mls_ in mlses], dim=0)
     return mls
@@ -142,7 +140,7 @@ class NSGTBase(nn.Module):
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
 
         # real shape is magnitude, dropping implicit complex dimension
-        return nsgt_f.shape[:-1]
+        return nsgt_f, nsgt_f.shape[:-1]
 
     def _apply(self, fn):
         self.nsgt._apply(fn)

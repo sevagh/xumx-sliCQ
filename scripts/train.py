@@ -51,29 +51,29 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         Xmag = cnorm(X)
 
         Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
-        Ymag_hat = unmix(Xmag_spectrogram)
+        Ymag_hat = unmix(Xmag_spectrogram, Xmag)
         Ymag = cnorm(nsgt(y))
 
         # complex nsgt after phasemix inversion
-        #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        #y_hat = insgt(Y_hat, x.shape[-1])
+        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+        y_hat = insgt(Y_hat, x.shape[-1])
 
-        #Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
+        Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
         Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
 
         loss = torch.nn.functional.mse_loss(
-            Ymag_hat,
+            Ymag_hat_spectrogram,
             Ymag_spectrogram,
         )
 
-        #sdr = sdr_criterion(y_hat, y)
+        sdr = sdr_criterion(y_hat, y)
 
         loss.backward()
         optimizer.step()
         losses.update(loss.item(), Ymag.size(1))
-        #sdrs.update(sdr.item(), y.size(1))
+        sdrs.update(sdr.item(), y.size(1))
 
-    return losses.avg, losses.avg, Xmag
+    return losses.avg, sdrs.avg, Xmag
 
 
 def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch):
@@ -95,29 +95,43 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
             ):
                 X = nsgt(x)
                 Xmag = cnorm(X)
+                Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
                 Ymag = cnorm(nsgt(y))
 
-                Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
-                Ymag_hat = unmix(Xmag_spectrogram)
+                # must do prediction on seq_dur segments
+                Ymagseg_hats = []
 
-                #Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-                #y_hat = insgt(Y_hat, x.shape[-1])
+                for Xmagseg in torch.split(Xmag, seq_batch, dim=3):
+                    pad = seq_batch - Xmagseg.shape[3]
+                    Xmagseg = torch.nn.functional.pad(Xmagseg, (0, 0, 0, pad), mode='constant', value=0)
 
-                #Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
+                    Xmagseg_spectrogram = nsgt.assemble_coefs(Xmagseg, args.seq_dur*44100)
+                    Ymagseg_hat = unmix(Xmagseg_spectrogram, Xmagseg)
+
+                    if pad > 0:
+                        Ymagseg_hat = Ymagseg_hat[..., : -pad, :]
+
+                    Ymagseg_hats.append(Ymagseg_hat)
+
+                Ymag_hat = torch.cat(Ymagseg_hats, dim=3)
+
+                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                y_hat = insgt(Y_hat, x.shape[-1])
+
+                Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
                 Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
 
                 loss = torch.nn.functional.mse_loss(
-                    Ymag_hat,
+                    Ymag_hat_spectrogram,
                     Ymag_spectrogram,
                 )
 
-                #sdr = sdr_criterion(y_hat, y)
+                sdr = sdr_criterion(y_hat, y)
 
                 losses.update(loss.item(), Ymag.size(1))
-                #sdrs.update(sdr.item(), y.size(1))
+                sdrs.update(sdr.item(), y.size(1))
 
-        Xmag_spectrogram = nsgt.assemble_coefs(Xmag, y.shape[-1])
-        return losses.avg, losses.avg, y, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat
+        return losses.avg, sdrs.avg, y, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram
 
 
 def get_statistics(args, encoder, dataset):
@@ -366,8 +380,9 @@ def main():
         scaler_mean = torch.tensor(scaler_mean, device=device)
         scaler_std = torch.tensor(scaler_std, device=device)
 
-    slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
+    slicq, slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
     seq_batch = slicq_shape[-2]
+    slicq = cnorm(slicq)
 
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
@@ -378,7 +393,12 @@ def main():
         info=args.print_shapes,
     ).to(device)
 
-    #torchinfo.summary(unmix, input_size=slicq_shape)
+    torchinfo.summary(unmix, input_size=
+        (
+            nsgt.assemble_coefs(slicq, int(args.seq_dur*44100)).shape,
+            slicq_shape
+        )
+    )
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sdr_criterion = auraloss.time.SISDRLoss()
