@@ -6,10 +6,10 @@ outdir="umx-slicq-1"
 
 set -x
 
-batch=16
-epochs=100
+batch=1
+epochs=1000
 workers=4
-seqdur=3
+seqdur=6
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -25,8 +25,9 @@ declare -a targetargs=(
 for i in "${targetargs[@]}"
 do
 	python scripts/train.py \
-		--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-		--seq-dur=$seqdur \
-		$i \
+		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
+		--fixed-start=13 --samples-per-track=1 \
+		--seq-dur=$seqdur --patience=1000 \
+		$i --print-shapes \
 		--output "${outdir}"
 done

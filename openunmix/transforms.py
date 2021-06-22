@@ -20,24 +20,30 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def overlap_add_slicq(slicq):
+def overlap_add_slicq(slicq, ncoefs):
     nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
 
     slicq = torch.flatten(slicq, start_dim=-2, end_dim=-1)
 
-    slicq = slicq.reshape(nb_samples, nb_channels*nb_f_bins, -1)
-    sh = nb_m_bins//2
-    fr = 0
-
-    slicq[..., fr:fr+sh] = slicq[..., :sh]
-
-    for i in range(nb_slices):
-        slicq[..., fr:fr+sh] += slicq[..., i*nb_m_bins:(i*nb_m_bins+sh)]
-        fr += sh
-        slicq[..., fr:fr+sh] += slicq[..., (i*nb_m_bins+sh):(i*nb_m_bins+2*sh)]
-
-    slicq = slicq[..., : nb_m_bins*nb_slices//2]
     slicq = slicq.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+
+    # use a slightly smaller overlap to avoid discontinuities around the edges
+    shh = nb_m_bins//2
+    fr = 0
+    sh = max(0, min(shh, ncoefs-fr))
+
+    # store second half of first slice
+    slicq[..., fr:fr+sh] += slicq[..., sh:nb_m_bins]
+
+    for i in range(1, nb_slices, 1):
+        start = i*nb_m_bins
+        slicq[..., fr:fr+sh] += slicq[..., start:start+sh]
+        fr += sh
+        sh = max(0, min(shh, ncoefs-fr))
+        slicq[..., fr:fr+sh] = slicq[..., start+sh:(start+2*sh)]
+
+    slicq = slicq[..., : fr]
+    #slicq = slicq.reshape(nb_samples, nb_channels, nb_f_bins, -1)
 
     return slicq
 
@@ -50,18 +56,6 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
     decoder = INSGT_SL(nsgt_base)
 
     return encoder, decoder
-
-
-# for plotting
-def coefs_to_db(mls, pooling=None):
-    # compute magnitude spectrum
-    mindb = -100.
-    mls = torch.abs(mls)
-    mindb = torch.empty_like(mls).fill_(10**(mindb/20.))
-    mls = torch.maximum(mls, mindb)
-    mls = torch.log10(mls)
-    mls *= 20.
-    return mls
 
 
 class NSGTBase(nn.Module):
@@ -184,7 +178,7 @@ class NSGT_SL(nn.Module):
         mls = torch.mean(mls, dim=-1)
         fs_coef = self.nsgt.fs*self.nsgt.nsgt.coef_factor
         mls_dur = len(mls)/fs_coef # final duration of MLS
-        mls_max = torch.quantile(mls, 0.999)
+        mls_max = torch.quantile(mls, 0.9)
 
         mls = mls.detach().cpu().numpy()
         ax.imshow(mls.T, aspect=mls_dur/mls.shape[1]*0.2, interpolation='nearest', origin='lower', vmin=mls_max-60., vmax=mls_max, extent=(0,mls_dur,0,mls.shape[1]))
