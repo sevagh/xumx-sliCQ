@@ -2,6 +2,7 @@ import argparse
 import torch
 import time
 from pathlib import Path
+import sklearn.preprocessing
 import tqdm
 import json
 import numpy as np
@@ -31,6 +32,7 @@ from openunmix import filtering
 tqdm.monitor_interval = 0
 
 _BIG_SPLIT = 5_000_000
+#torch.autograd.set_detect_anomaly(True)
 
 
 def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer):
@@ -49,16 +51,17 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         X = nsgt(x)
         Xmag = cnorm(X)
 
-        Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
-        Ymag_hat = unmix(Xmag_spectrogram, Xmag)
+        Ymag_hat = unmix(Xmag)
         Ymag = cnorm(nsgt(y))
+
+        Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).permute(0, 3, 2, 1)
 
         # complex nsgt after phasemix inversion
         Y_hat = transforms.phasemix_sep(X, Ymag_hat)
         y_hat = insgt(Y_hat, x.shape[-1])
 
-        Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
-        Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
+        Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat).permute(0, 3, 2, 1)
+        Ymag_spectrogram = transforms.overlap_add_slicq(Ymag).permute(0, 3, 2, 1)
 
         loss = torch.nn.functional.mse_loss(
             Ymag_hat_spectrogram,
@@ -94,7 +97,7 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
             ):
                 X = nsgt(x)
                 Xmag = cnorm(X)
-                Xmag_spectrogram = nsgt.assemble_coefs(Xmag, x.shape[-1])
+                Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).permute(0, 3, 2, 1)
                 Ymag = cnorm(nsgt(y))
 
                 # must do prediction on seq_dur segments
@@ -104,8 +107,8 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
                     pad = seq_batch - Xmagseg.shape[3]
                     Xmagseg = torch.nn.functional.pad(Xmagseg, (0, 0, 0, pad), mode='constant', value=0)
 
-                    Xmagseg_spectrogram = nsgt.assemble_coefs(Xmagseg, args.seq_dur*44100)
-                    Ymagseg_hat = unmix(Xmagseg_spectrogram, Xmagseg)
+                    Xmagseg_spectrogram = transforms.overlap_add_slicq(Xmagseg).permute(0, 3, 2, 1)
+                    Ymagseg_hat = unmix(Xmagseg)
 
                     if pad > 0:
                         Ymagseg_hat = Ymagseg_hat[..., : -pad, :]
@@ -117,8 +120,8 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
                 Y_hat = transforms.phasemix_sep(X, Ymag_hat)
                 y_hat = insgt(Y_hat, x.shape[-1])
 
-                Ymag_hat_spectrogram = nsgt.assemble_coefs(Ymag_hat, y.shape[-1])
-                Ymag_spectrogram = nsgt.assemble_coefs(Ymag, y.shape[-1])
+                Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat).permute(0, 3, 2, 1)
+                Ymag_spectrogram = transforms.overlap_add_slicq(Ymag).permute(0, 3, 2, 1)
 
                 loss = torch.nn.functional.mse_loss(
                     Ymag_hat_spectrogram,
@@ -131,6 +134,44 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
                 sdrs.update(sdr.item(), y.size(1))
 
         return losses.avg, sdrs.avg, y, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram
+
+
+def get_statistics(args, encoder, dataset):
+    # unpack encoder object
+    nsgt, _, cnorm = encoder
+
+    nsgt = nsgt.to("cpu")
+    cnorm = cnorm.to("cpu")
+
+    scaler = sklearn.preprocessing.StandardScaler()
+
+    dataset_scaler = copy.deepcopy(dataset)
+    if isinstance(dataset_scaler, data.SourceFolderDataset):
+        dataset_scaler.random_chunks = False
+    else:
+        dataset_scaler.random_chunks = False
+        dataset_scaler.seq_duration = None
+
+    dataset_scaler.samples_per_track = 1
+    dataset_scaler.augmentations = None
+    dataset_scaler.random_track_mix = False
+    dataset_scaler.random_interferer_mix = False
+
+    pbar = tqdm.tqdm(range(len(dataset_scaler)), disable=args.quiet)
+
+    for ind in pbar:
+        x, y = dataset_scaler[ind]
+        pbar.set_description("Compute dataset statistics")
+
+        # downmix to mono channel
+        # norm across frequency bins
+        Xmag = cnorm(nsgt(torch.unsqueeze(x, dim=0)))
+        Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).mean(1, keepdim=False).permute(0, 2, 1)
+
+        scaler.partial_fit(np.squeeze(Xmag_spectrogram.cpu().detach()))
+
+    # set inital input scaler values
+    return scaler.mean_, scaler.scale_
 
 
 def main():
@@ -240,6 +281,12 @@ def main():
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Speed up training init for dev purposes",
+    )
 
     # Misc Parameters
     parser.add_argument(
@@ -329,6 +376,14 @@ def main():
     with open(Path(target_path, "separator.json"), "w") as outfile:
         outfile.write(json.dumps(separator_conf, indent=4, sort_keys=True))
 
+    if args.model or args.debug:
+        scaler_mean = None
+        scaler_std = None
+    else:
+        scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset)
+        scaler_mean = torch.tensor(scaler_mean, device=device)
+        scaler_std = torch.tensor(scaler_std, device=device)
+
     slicq, slicq_shape = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
     seq_batch = slicq_shape[-2]
     slicq = cnorm(slicq)
@@ -336,13 +391,14 @@ def main():
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
         nsgt_base.M,
+        input_mean=scaler_mean,
+        input_scale=scaler_std,
         nb_channels=args.nb_channels,
         info=args.print_shapes,
     ).to(device)
 
     torchinfo.summary(unmix, input_size=
         (
-            nsgt.assemble_coefs(slicq, int(args.seq_dur*44100)).shape,
             slicq_shape
         )
     )
@@ -453,9 +509,6 @@ def main():
             img = torch.ByteTensor(torch.ByteStorage.from_buffer(io_buf.getvalue()))
 
             image = torchvision.io.decode_png(img)
-            #img_arr = np.reshape(np.frombuffer(io_buf.getvalue(), dtype=np.uint8),
-            #                     newshape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
-            #io_buf.close()
 
             tboard_writer.add_image(f'sliCQ-spectrograms-{epoch}', image, global_step=epoch)
             tboard_writer.add_scalar('Loss/train', train_loss, epoch)
@@ -469,13 +522,11 @@ def main():
             break
 
     if tboard_writer is not None:
-        tboard_writer.add_graph(unmix, (last_Xmag_spectrogram, last_Xmag))
+        tboard_writer.add_graph(unmix, (last_Xmag))
         for tag, param in unmix.named_parameters():
-            try:
-                x = param.grad.data
-            except:
-                print(f'tag: {tag} doesnt have grad?')
-            #tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
+            if 'input' in tag:
+                continue
+            tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
 
 
 if __name__ == "__main__":

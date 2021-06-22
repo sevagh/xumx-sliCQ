@@ -20,6 +20,28 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
+def overlap_add_slicq(slicq):
+    nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
+
+    slicq = torch.flatten(slicq, start_dim=-2, end_dim=-1)
+
+    slicq = slicq.reshape(nb_samples, nb_channels*nb_f_bins, -1)
+    sh = nb_m_bins//2
+    fr = 0
+
+    slicq[..., fr:fr+sh] = slicq[..., :sh]
+
+    for i in range(nb_slices):
+        slicq[..., fr:fr+sh] += slicq[..., i*nb_m_bins:(i*nb_m_bins+sh)]
+        fr += sh
+        slicq[..., fr:fr+sh] += slicq[..., (i*nb_m_bins+sh):(i*nb_m_bins+2*sh)]
+
+    slicq = slicq[..., : nb_m_bins*nb_slices//2]
+    slicq = slicq.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+
+    return slicq
+
+
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
     if sample_rate != 44100.0:
         raise ValueError('i was lazy and harcoded a lot of 44100.0, forgive me')
@@ -28,39 +50,6 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
     decoder = INSGT_SL(nsgt_base)
 
     return encoder, decoder
-
-
-def _assemble_coefs(cqts, ncoefs):
-    """
-    Build a sequence of blocks out of incoming overlapping CQT slices
-    """
-    cqts = cqts.permute(0, 3, 1, 2, 4)
-
-    mlses = []
-    for cqt in cqts:
-        cqt = iter(cqt)
-        cqt0 = next(cqt)
-        cq0 = cqt0.clone().detach().requires_grad_(True).T
-        shh = cq0.shape[0]//2
-        out = torch.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype, device=cq0.device)
-        
-        fr = 0
-        sh = max(0, min(shh, ncoefs-fr))
-        out[fr:fr+sh] = cq0[sh:] # store second half
-        # add up slices
-        for cqi in cqt:
-            cqi = cqi.clone().detach().requires_grad_(True).T
-            out[fr:fr+sh] += cqi[:sh]
-            cqi = cqi[sh:]
-            fr += sh
-            sh = max(0, min(shh, ncoefs-fr))
-            out[fr:fr+sh] = cqi[:sh]
-            
-        coefs = out[:fr]
-        mlses.append(coefs)
-
-    mls = torch.cat([torch.unsqueeze(mls_, dim=0) for mls_ in mlses], dim=0)
-    return mls
 
 
 # for plotting
@@ -173,6 +162,7 @@ class NSGT_SL(nn.Module):
         x = x.view(-1, shape[-1])
 
         C = self.nsgt.nsgt.forward((x,))
+
         #S, I, F, T = C.shape
         # slice, channels, frequency bins, time bins
 
@@ -185,10 +175,6 @@ class NSGT_SL(nn.Module):
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
 
         return nsgt_f
-
-    def assemble_coefs(self, cqt, N):
-        ncoefs = int(N*self.nsgt.nsgt.coef_factor)
-        return _assemble_coefs(cqt, ncoefs)
 
     def plot_spectrogram(self, mls, ax):
         assert mls.shape[0] == 1
