@@ -72,7 +72,7 @@ def train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         losses.update(loss.item(), Ymag.size(1))
         sdrs.update(sdr.item(), y.size(1))
 
-    return losses.avg, sdrs.avg, Xmag
+    return losses.avg, sdrs.avg, Xmag_spectrogram, Xmag
 
 
 def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch):
@@ -395,7 +395,7 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss, train_sdr, last_Xmag = train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
+        train_loss, train_sdr, last_Xmag_spectrogram, last_Xmag = train(args, unmix, encoder, device, train_sampler, sdr_criterion, optimizer)
         valid_loss, valid_sdr, audio_sample, X_spec, Y_spec, Y_spec_hat = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
@@ -469,11 +469,13 @@ def main():
             break
 
     if tboard_writer is not None:
-        tboard_writer.add_graph(unmix, last_Xmag)
+        tboard_writer.add_graph(unmix, (last_Xmag_spectrogram, last_Xmag))
         for tag, param in unmix.named_parameters():
-            if 'input' in tag:
-                continue
-            tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
+            try:
+                x = param.grad.data
+            except:
+                print(f'tag: {tag} doesnt have grad?')
+            #tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
 
 
 if __name__ == "__main__":

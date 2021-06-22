@@ -5,7 +5,7 @@ musdbdebug="/home/sevagh/musdbdebug"
 outdir="umx-slicq-1"
 
 batch=1
-epochs=1000
+epochs=5
 workers=4
 seqdur=1
 

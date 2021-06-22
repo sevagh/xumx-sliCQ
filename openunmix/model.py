@@ -86,7 +86,7 @@ class OpenUnmix(nn.Module):
         )
 
         self.postgrow = Sequential(
-            ConvTranspose2d(nb_channels, 10, (1, 246), stride=(1, 2), bias=False),
+            ConvTranspose2d(nb_channels, 10, (1, 512), stride=(1, 2), bias=False),
             BatchNorm2d(10),
             ReLU(),
             ConvTranspose2d(10, 20, 1, bias=False),
@@ -206,9 +206,12 @@ class OpenUnmix(nn.Module):
         logging.info(f'13. mix {mix.shape}')
 
         # mask as much as we predicted, we can't grow exactly
-        mix[..., : x.shape[-1]] *= x
-        mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        return mix
+        x[..., : mix.shape[-1]] *= mix
+
+        x = x[..., : mix.shape[-1]]
+
+        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
+        return x
 
 
 class Separator(nn.Module):
