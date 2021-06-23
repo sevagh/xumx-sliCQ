@@ -29,10 +29,33 @@ def overlap_add_slicq(slicq):
     ncoefs = nb_slices*nb_m_bins//2 + hop
     out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
 
+    w = torch.hann_window(window, dtype=slicq.dtype, device=slicq.device)
+
     ptr = 0
 
     for i in range(nb_slices):
-        out[:, :, :, ptr:ptr+window] += slicq[:, :, :, i, :]
+        out[:, :, :, ptr:ptr+window] += w*slicq[:, :, :, i, :]
+        ptr += hop
+
+    return out
+
+
+def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
+    nb_samples, nb_channels, nb_f_bins, ncoefs = slicq.shape
+
+    window = nb_m_bins
+    hop = window//2 # 50% overlap window
+
+    assert(ncoefs == (nb_slices*nb_m_bins//2 + hop))
+
+    out = torch.zeros((nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins), dtype=slicq.dtype, device=slicq.device)
+
+    ptr = 0
+
+    w = torch.hann_window(window, dtype=slicq.dtype, device=slicq.device)
+
+    for i in range(nb_slices):
+        out[:, :, :, i, :] += w*slicq[:, :, :, ptr:ptr+window]
         ptr += hop
 
     return out

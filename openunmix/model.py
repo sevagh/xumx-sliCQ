@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq, inverse_ola_slicq
 from collections import defaultdict
 import numpy as np
 import logging
@@ -73,11 +73,6 @@ class OpenUnmix(nn.Module):
 
         self.cdae = Sequential(*encoder, *decoder)
 
-        self.temporal_unpooling = Sequential(
-            ConvTranspose2d(nb_channels, nb_channels, (11, 2*M), stride=(1, 2), bias=False),
-            BatchNorm2d(nb_channels),
-            ReLU(),
-        )
 
         if input_mean is not None:
             input_mean = (-input_mean).float()
@@ -116,12 +111,10 @@ class OpenUnmix(nn.Module):
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
-        logging.info(f'1. PRE-TEMPORAL-POOLING {x.shape}')
-
-        logging.info(f'2. OVERLAP-ADD TEMPORAL POOLING {x.shape}')
+        logging.info(f'1. OVERLAP-ADD TEMPORAL POOLING {x.shape}')
         x = overlap_add_slicq(x)
 
-        logging.info(f'3. OVERLAP-ADDED SHAPE {x.shape}')
+        logging.info(f'2. OVERLAP-ADDED SHAPE {x.shape}')
 
         # shift and scale input to mean=0.5 std=1 (across all bins)
         # move frequency bins to the end, then back
@@ -130,8 +123,8 @@ class OpenUnmix(nn.Module):
         x = x * self.input_scale[: self.nb_bins]
         x = x.permute(0, 1, 3, 2)
 
-        logging.info(f'5. POST-WHITEN {x.shape}')
-        logging.info(f'5. CDAE {x.shape}')
+        logging.info(f'3. POST-WHITEN {x.shape}')
+        logging.info(f'3. CDAE {x.shape}')
 
         skip = None
 
@@ -144,22 +137,12 @@ class OpenUnmix(nn.Module):
                 skip = x.clone()
             logging.info(f'\t3-{i}. {sh1} -> {x.shape}')
 
-        logging.info(f'5. POST-CDAE {x.shape}')
-        logging.info(f'6. TEMPORAL UNPOOLING {x.shape}')
+        logging.info(f'4. POST-CDAE {x.shape}')
+        logging.info(f'4. INVERSE OLA {x.shape}')
 
-        # temporal unpooling
-        for i, layer in enumerate(self.temporal_unpooling):
-            sh1 = x.shape
-            x = layer(x)
-            logging.info(f'\t6-{i}. {sh1} -> {x.shape}')
+        x = inverse_ola_slicq(x, nb_slices, nb_m_bins)
 
-        logging.info(f'7. CROPPING {x.shape}')
-        x = x[..., : nb_f_bins, : nb_m_bins*nb_slices]
-
-        logging.info(f'8. CROPPED {x.shape}')
-
-        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        logging.info(f'9. RETURN MASK {x.shape}')
+        logging.info(f'5. RETURN MASK {x.shape}')
 
         mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
         return x*mix

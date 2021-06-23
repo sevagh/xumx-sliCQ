@@ -36,7 +36,7 @@ _BIG_SPLIT = 5_000_000
 
 
 #@profile
-def train(args, unmix, encoder, device, train_sampler, optimizer, sdr_criterion):
+def train(args, unmix, encoder, device, train_sampler, optimizer):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -54,13 +54,10 @@ def train(args, unmix, encoder, device, train_sampler, optimizer, sdr_criterion)
         Ymag_hat = unmix(Xmag)
         Ymag = cnorm(nsgt(y))
 
-        #loss = torch.nn.functional.mse_loss(
-        #    transforms.overlap_add_slicq(Ymag_hat, ncoefs),
-        #    transforms.overlap_add_slicq(Ymag, ncoefs),
-        #)
-        Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-        y_hat = insgt(Y_hat, y.shape[-1])
-        loss = sdr_criterion(y_hat, y)
+        loss = torch.nn.functional.mse_loss(
+            transforms.overlap_add_slicq(Ymag_hat),
+            transforms.overlap_add_slicq(Ymag),
+        )
 
         loss.backward()
         optimizer.step()
@@ -109,9 +106,13 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
                 Ymag_hat = torch.cat(Ymagseg_hats, dim=3)
 
-                Y_hat = transforms.phasemix_sep(X, Ymag_hat)
-                y_hat = insgt(Y_hat, y.shape[-1])
-                loss = sdr_criterion(y_hat, y)
+                Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat)
+                Ymag_spectrogram = transforms.overlap_add_slicq(Ymag)
+
+                loss = torch.nn.functional.mse_loss(
+                        Ymag_hat_spectrogram,
+                        Ymag_spectrogram
+                )
 
                 losses.update(loss.item(), Ymag.size(1))
 
@@ -119,13 +120,20 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
                 # and to check sdr
                 # set it if ret_tup is unset, and randomly set others
                 if ret_tup is None or bool(random.getrandbits(1)):
+                    Y_hat = transforms.phasemix_sep(X, Ymag_hat)
+                    y_hat = insgt(Y_hat, y.shape[-1])
+                    sdr = sdr_criterion(y_hat, y)
+
+                    sdrs.update(sdr.item(), y_hat.size(1))
+
+                    # permute for plotting
                     Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).permute(0, 3, 2, 1)
-                    Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat).permute(0, 3, 2, 1)
-                    Ymag_spectrogram = transforms.overlap_add_slicq(Ymag).permute(0, 3, 2, 1)
+                    Ymag_hat_spectrogram = Ymag_hat_spectrogram.permute(0, 3, 2, 1)
+                    Ymag_spectrogram = Ymag_spectrogram.permute(0, 3, 2, 1)
 
                     ret_tup = (y_hat, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram)
 
-        return losses.avg, ret_tup
+        return losses.avg, sdrs.avg, ret_tup
 
 
 def get_statistics(args, encoder, dataset):
@@ -444,8 +452,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, optimizer, sdr_criterion)
-        valid_loss, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
+        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, optimizer)
+        valid_loss, valid_sdr, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 
@@ -503,8 +511,9 @@ def main():
 
             image = torchvision.io.decode_png(img)
 
-            tboard_writer.add_scalar('Loss (SISDR)/train', train_loss, epoch)
-            tboard_writer.add_scalar('Loss (SISDR)/valid', valid_loss, epoch)
+            tboard_writer.add_scalar('Loss (MSE)/train', train_loss, epoch)
+            tboard_writer.add_scalar('Loss (MSE)/valid', valid_loss, epoch)
+            tboard_writer.add_scalar('SI-SDR/valid', valid_sdr, epoch)
             tboard_writer.add_audio(f"valid-sep-{epoch}", audio_sample, global_step=epoch)
             tboard_writer.add_image(f'valid-sliCQ-{epoch}', image, global_step=epoch)
 
