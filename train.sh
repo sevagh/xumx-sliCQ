@@ -9,7 +9,7 @@ set -x
 batch=1
 epochs=1000
 workers=4
-seqdur=6
+seqdur=12
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
