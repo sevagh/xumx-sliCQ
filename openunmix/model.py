@@ -26,7 +26,6 @@ class OpenUnmix(nn.Module):
         self,
         nb_bins,
         M,
-        ncoefs=None,
         nb_channels=2,
         input_mean=None,
         input_scale=None,
@@ -34,8 +33,6 @@ class OpenUnmix(nn.Module):
         info=False,
     ):
         super(OpenUnmix, self).__init__()
-
-        self.ncoefs = ncoefs
 
         self.nb_bins = nb_bins
 
@@ -69,7 +66,7 @@ class OpenUnmix(nn.Module):
 
         for i in range(layers,0,-1):
             decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1]),
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
                 BatchNorm2d(channels[i-1]),
                 ReLU(),
              ])
@@ -77,7 +74,7 @@ class OpenUnmix(nn.Module):
         self.cdae = Sequential(*encoder, *decoder)
 
         self.temporal_unpooling = Sequential(
-            ConvTranspose2d(nb_channels, nb_channels, (1, M+64), stride=(1, 2), bias=False),
+            ConvTranspose2d(nb_channels, nb_channels, (11, 2*M), stride=(1, 2), bias=False),
             BatchNorm2d(nb_channels),
             ReLU(),
         )
@@ -121,14 +118,8 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'1. PRE-TEMPORAL-POOLING {x.shape}')
 
-        # flatten 2d
-        ncoefs = self.ncoefs
-        if not ncoefs:
-            ncoefs = nb_m_bins*nb_slices
-
-        logging.info(f'2. OVERLAP-ADD TEMPORAL POOLING {x.shape[-2]}, {x.shape[-1]} ({x.shape[-2]*x.shape[-1]}) -> {ncoefs}')
-
-        x = overlap_add_slicq(x, ncoefs)
+        logging.info(f'2. OVERLAP-ADD TEMPORAL POOLING {x.shape}')
+        x = overlap_add_slicq(x)
 
         logging.info(f'3. OVERLAP-ADDED SHAPE {x.shape}')
 
@@ -163,7 +154,7 @@ class OpenUnmix(nn.Module):
             logging.info(f'\t6-{i}. {sh1} -> {x.shape}')
 
         logging.info(f'7. CROPPING {x.shape}')
-        x = x[..., : nb_m_bins*nb_slices]
+        x = x[..., : nb_f_bins, : nb_m_bins*nb_slices]
 
         logging.info(f'8. CROPPED {x.shape}')
 

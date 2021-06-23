@@ -36,7 +36,7 @@ _BIG_SPLIT = 5_000_000
 
 
 #@profile
-def train(args, unmix, ncoefs, encoder, device, train_sampler, optimizer, sdr_criterion):
+def train(args, unmix, encoder, device, train_sampler, optimizer, sdr_criterion):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -69,7 +69,7 @@ def train(args, unmix, ncoefs, encoder, device, train_sampler, optimizer, sdr_cr
     return losses.avg, Xmag
 
 
-def valid(args, unmix, coef_factor, encoder, device, valid_sampler, sdr_criterion, seq_batch):
+def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -89,8 +89,6 @@ def valid(args, unmix, coef_factor, encoder, device, valid_sampler, sdr_criterio
                 torch.split(xlong, _BIG_SPLIT, dim=-1),
                 torch.split(ylong, _BIG_SPLIT, dim=-1)
             ):
-                ncoefs = int(x.shape[-1]*coef_factor)
-
                 X = nsgt(x)
                 Xmag = cnorm(X)
                 Ymag = cnorm(nsgt(y))
@@ -121,16 +119,16 @@ def valid(args, unmix, coef_factor, encoder, device, valid_sampler, sdr_criterio
                 # and to check sdr
                 # set it if ret_tup is unset, and randomly set others
                 if ret_tup is None or bool(random.getrandbits(1)):
-                    Xmag_spectrogram = transforms.overlap_add_slicq(Xmag, ncoefs).permute(0, 3, 2, 1)
-                    Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat, ncoefs).permute(0, 3, 2, 1)
-                    Ymag_spectrogram = transforms.overlap_add_slicq(Ymag, ncoefs).permute(0, 3, 2, 1)
+                    Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).permute(0, 3, 2, 1)
+                    Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat).permute(0, 3, 2, 1)
+                    Ymag_spectrogram = transforms.overlap_add_slicq(Ymag).permute(0, 3, 2, 1)
 
                     ret_tup = (y_hat, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram)
 
         return losses.avg, ret_tup
 
 
-def get_statistics(args, encoder, coef_factor, dataset):
+def get_statistics(args, encoder, dataset):
     # unpack encoder object
     nsgt, _, cnorm = encoder
     encoder = torch.nn.Sequential(nsgt, cnorm)
@@ -161,7 +159,7 @@ def get_statistics(args, encoder, coef_factor, dataset):
         # downmix to mono channel
         # norm across frequency bins
         Xmag = encoder(torch.unsqueeze(x, dim=0))
-        Xmag_spectrogram = transforms.overlap_add_slicq(Xmag, int(coef_factor*N)).mean(1, keepdim=False).permute(0, 2, 1)
+        Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).mean(1, keepdim=False).permute(0, 2, 1)
 
         scaler.partial_fit(np.squeeze(Xmag_spectrogram.cpu().detach()))
 
@@ -350,8 +348,6 @@ def main():
         device=device
     )
 
-    ncoefs_train = int(args.seq_dur*train_dataset.sample_rate*nsgt_base.nsgt.coef_factor)
-
     nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=train_dataset.sample_rate
     )
@@ -377,7 +373,7 @@ def main():
         scaler_mean = None
         scaler_std = None
     else:
-        scaler_mean, scaler_std = get_statistics(args, encoder, nsgt_base.nsgt.coef_factor, train_dataset)
+        scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset)
         scaler_mean = torch.tensor(scaler_mean, device=device)
         scaler_std = torch.tensor(scaler_std, device=device)
 
@@ -388,7 +384,6 @@ def main():
     unmix = model.OpenUnmix(
         nsgt_base.fbins_actual,
         nsgt_base.M,
-        ncoefs=ncoefs_train,
         input_mean=scaler_mean,
         input_scale=scaler_std,
         nb_channels=args.nb_channels,
@@ -449,8 +444,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss, last_Xmag = train(args, unmix, ncoefs_train, encoder, device, train_sampler, optimizer, sdr_criterion)
-        valid_loss, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, nsgt_base.nsgt.coef_factor, encoder, device, valid_sampler, sdr_criterion, seq_batch)
+        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, optimizer, sdr_criterion)
+        valid_loss, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 

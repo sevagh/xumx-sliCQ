@@ -20,32 +20,22 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def overlap_add_slicq(slicq, ncoefs):
+def overlap_add_slicq(slicq):
     nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
 
-    slicq = torch.flatten(slicq, start_dim=-2, end_dim=-1)
+    window = nb_m_bins
+    hop = window//2 # 50% overlap window
 
-    slicq = slicq.reshape(nb_samples, nb_channels, nb_f_bins, -1)
+    ncoefs = nb_slices*nb_m_bins//2 + hop
+    out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
 
-    # use a slightly smaller overlap to avoid discontinuities around the edges
-    shh = nb_m_bins//2
-    fr = 0
-    sh = max(0, min(shh, ncoefs-fr))
+    ptr = 0
 
-    # store second half of first slice
-    slicq[..., fr:fr+sh] += slicq[..., sh:nb_m_bins]
+    for i in range(nb_slices):
+        out[:, :, :, ptr:ptr+window] += slicq[:, :, :, i, :]
+        ptr += hop
 
-    for i in range(1, nb_slices, 1):
-        start = i*nb_m_bins
-        slicq[..., fr:fr+sh] += slicq[..., start:start+sh]
-        fr += sh
-        sh = max(0, min(shh, ncoefs-fr))
-        slicq[..., fr:fr+sh] = slicq[..., start+sh:(start+2*sh)]
-
-    slicq = slicq[..., : fr]
-    #slicq = slicq.reshape(nb_samples, nb_channels, nb_f_bins, -1)
-
-    return slicq
+    return out
 
 
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
