@@ -20,38 +20,41 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
-def _slicq_wins(window, dtype, device):
-    ws = torch.hann_window(window, periodic=False, dtype=dtype, device=device)
-    wa = torch.hann_window(window, periodic=False, dtype=dtype, device=device)
+def _slicq_wins(window, device):
+    ws = torch.sqrt(torch.hann_window(window, periodic=False, device=device))
+    wa = torch.sqrt(torch.hann_window(window, periodic=False, device=device))
 
     hop = window//2 # 50% overlap window
 
-    return ws, wa
+    return ws, wa, hop
 
 
 def overlap_add_slicq(slicq):
     nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
+    return torch.flatten(slicq, start_dim=-2, end_dim=-1)
 
-    window = nb_m_bins
-    w, _, hop = _slicq_wins(window, slicq.dtype, slicq.device)
+    #window = nb_m_bins
+    #w, _, hop = _slicq_wins(window, slicq.device)
 
-    ncoefs = nb_slices*nb_m_bins//2 + hop
-    out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
+    #ncoefs = nb_slices*nb_m_bins//2 + hop
+    #out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
 
-    ptr = 0
+    #ptr = 0
 
-    for i in range(nb_slices):
-        out[:, :, :, ptr:ptr+window] += w*slicq[:, :, :, i, :]
-        ptr += hop
+    #for i in range(nb_slices):
+    #    out[:, :, :, ptr:ptr+window] += w*slicq[:, :, :, i, :]
+    #    ptr += hop
 
-    return out
+    #return out
 
 
 def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
     nb_samples, nb_channels, nb_f_bins, ncoefs = slicq.shape
+    #return torch.unflatten(slicq, (nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins))
+    return slicq.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
 
     window = nb_m_bins
-    wa, ws, hop = _slicq_wins(window, slicq.dtype, slicq.device)
+    wa, ws, hop = _slicq_wins(window, slicq.device)
 
     assert(ncoefs == (nb_slices*nb_m_bins//2 + hop))
 
@@ -60,10 +63,10 @@ def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
     ptr = 0
 
     for i in range(nb_slices):
-        out[:, :, :, i, :] += w*slicq[:, :, :, ptr:ptr+window]
+        out[:, :, :, i, :] += ws*slicq[:, :, :, ptr:ptr+window]
         ptr += hop
 
-    out *= hop/torch.sum(w*w)
+    out *= hop/torch.sum(ws*wa)
     return out
 
 

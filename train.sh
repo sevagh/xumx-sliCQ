@@ -9,7 +9,7 @@ set -x
 batch=1
 epochs=1000
 workers=4
-seqdur=1
+seqdur=6
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -26,8 +26,10 @@ for i in "${targetargs[@]}"
 do
 	python scripts/train.py \
 		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-		--fixed-start=13 --samples-per-track=1 \
+		--fixed-start=23.2 --samples-per-track=1 \
 		--seq-dur=$seqdur --patience=1000 \
-		$i \
+		$i --print-shapes \
 		--output "${outdir}"
 done
+
+# --random-track-mix

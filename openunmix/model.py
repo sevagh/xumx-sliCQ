@@ -40,13 +40,13 @@ class OpenUnmix(nn.Module):
             12, 20, 30, 40
         ]
         filters = [
-            (11, 42), (7, 7), (9, 9), (13, 13),
+            (11, 42), (11, 23), (9, 9), (7, 7)
         ]
         strides = [
             (1, 1), (1, 1), (1, 1), (1, 1)
         ]
         dilations = [
-            (1, 1), (1, 1), (1, 4), (1, 8)
+            (1, 2), (1, 4), (1, 8), (1, 16)
         ]
         output_paddings = [
             (0, 0), (0, 0), (0, 0), (0, 0)
@@ -103,10 +103,10 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'-1. x {x.shape}')
 
-        #mix = x.detach().clone()
+        mix = x.detach().clone()
 
         logging.info(f'0. x {x.shape}')
-        #logging.info(f'0. mix {mix.shape}')
+        logging.info(f'0. mix {mix.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
@@ -125,36 +125,26 @@ class OpenUnmix(nn.Module):
         logging.info(f'3. POST-WHITEN {x.shape}')
         logging.info(f'3. CDAE {x.shape}')
 
-        skip = None
+        #skip = None
 
         for i, layer in enumerate(self.cdae):
             sh1 = x.shape
-            if i == len(self.cdae)-6:
-                x += skip
+            #if i == len(self.cdae)-6:
+            #    x += skip
             x = layer(x)
-            if i == 5:
-                skip = x.clone()
+            #if i == 5:
+            #    skip = x.clone()
             logging.info(f'\t3-{i}. {sh1} -> {x.shape}')
 
         logging.info(f'4. POST-CDAE {x.shape}')
         logging.info(f'4. INVERSE OLA {x.shape}')
 
         x = inverse_ola_slicq(x, nb_slices, nb_m_bins)
-
-        #logging.info(f'5. REFINE {x.shape}')
-
-        #x = x.reshape(-1, nb_channels*nb_f_bins)
-
-        #for i, layer in enumerate(self.refine):
-        #    sh1 = x.shape
-        #    x = layer(x)
-        #    logging.info(f'\t5-{i}. {sh1} -> {x.shape}')
-
         logging.info(f'6. RETURN MASK {x.shape}')
 
-        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        #mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        return x#*mix
+        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
+        mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
+        return x*mix
 
 
 class Separator(nn.Module):

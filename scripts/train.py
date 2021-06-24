@@ -32,11 +32,11 @@ from openunmix import filtering
 tqdm.monitor_interval = 0
 
 _BIG_SPLIT = 5_000_000
-#torch.autograd.set_detect_anomaly(True)
+_PLOT_LIM = 16_000
 
 
 #@profile
-def train(args, unmix, encoder, device, train_sampler, optimizer):
+def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -54,7 +54,7 @@ def train(args, unmix, encoder, device, train_sampler, optimizer):
         Ymag_hat = unmix(Xmag)
         Ymag = cnorm(nsgt(y))
 
-        loss = torch.nn.functional.mse_loss(
+        loss = mse_criterion(
             Ymag_hat,
             Ymag,
         )
@@ -66,7 +66,7 @@ def train(args, unmix, encoder, device, train_sampler, optimizer):
     return losses.avg, Xmag
 
 
-def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch):
+def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, seq_batch):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -106,7 +106,7 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
                 Ymag_hat = torch.cat(Ymagseg_hats, dim=3)
 
-                loss = torch.nn.functional.mse_loss(
+                loss = mse_criterion(
                     Ymag_hat,
                     Ymag
                 )
@@ -125,7 +125,7 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
                     # permute for plotting
                     # trim to a reasonable size
-                    rightlim = max(16000, Xmag.shape[-1])
+                    rightlim = max(_PLOT_LIM, Xmag.shape[-1])
 
                     Xmag_spectrogram = transforms.overlap_add_slicq(Xmag)[..., :rightlim].permute(0, 3, 2, 1)
                     Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat)[..., :rightlim].permute(0, 3, 2, 1)
@@ -406,6 +406,7 @@ def main():
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sdr_criterion = auraloss.time.SISDRLoss()
+    mse_criterion = torch.nn.MSELoss(reduction='mean')
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -452,8 +453,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, optimizer)
-        valid_loss, valid_sdr, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
+        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
+        valid_loss, valid_sdr, (audio_sample, X_spec, Y_spec, Y_spec_hat) = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, seq_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 

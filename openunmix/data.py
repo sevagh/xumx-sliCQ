@@ -298,6 +298,12 @@ def load_datasets(
             help="loads wav instead of STEMS",
         )
         parser.add_argument(
+            "--random-track-mix",
+            action="store_true",
+            default=False,
+            help="use random track mix",
+        )
+        parser.add_argument(
             "--fixed-start",
             type=float,
             default=-1.0,
@@ -324,7 +330,7 @@ def load_datasets(
             samples_per_track=args.samples_per_track,
             seq_duration=args.seq_dur,
             source_augmentations=source_augmentations,
-            random_track_mix=True,
+            random_track_mix=args.random_track_mix,
             **dataset_kwargs,
         )
 
