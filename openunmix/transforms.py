@@ -20,16 +20,23 @@ def phasemix_sep(X, Ymag):
     return Ycomplex
 
 
+def _slicq_wins(window, dtype, device):
+    ws = torch.hann_window(window, periodic=False, dtype=dtype, device=device)
+    wa = torch.hann_window(window, periodic=False, dtype=dtype, device=device)
+
+    hop = window//2 # 50% overlap window
+
+    return ws, wa
+
+
 def overlap_add_slicq(slicq):
     nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
 
     window = nb_m_bins
-    hop = window//2 # 50% overlap window
+    w, _, hop = _slicq_wins(window, slicq.dtype, slicq.device)
 
     ncoefs = nb_slices*nb_m_bins//2 + hop
     out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
-
-    w = torch.hann_window(window, dtype=slicq.dtype, device=slicq.device)
 
     ptr = 0
 
@@ -44,7 +51,7 @@ def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
     nb_samples, nb_channels, nb_f_bins, ncoefs = slicq.shape
 
     window = nb_m_bins
-    hop = window//2 # 50% overlap window
+    wa, ws, hop = _slicq_wins(window, slicq.dtype, slicq.device)
 
     assert(ncoefs == (nb_slices*nb_m_bins//2 + hop))
 
@@ -52,12 +59,11 @@ def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
 
     ptr = 0
 
-    w = torch.hann_window(window, dtype=slicq.dtype, device=slicq.device)
-
     for i in range(nb_slices):
         out[:, :, :, i, :] += w*slicq[:, :, :, ptr:ptr+window]
         ptr += hop
 
+    out *= hop/torch.sum(w*w)
     return out
 
 
@@ -77,6 +83,7 @@ class NSGTBase(nn.Module):
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fs/2
+        self.scale = 1.
 
         self.scl = None
         if scale == 'bark':
@@ -181,7 +188,7 @@ class NSGT_SL(nn.Module):
         # unpack batch
         nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
 
-        return nsgt_f
+        return nsgt_f*self.nsgt.scale
 
     def plot_spectrogram(self, mls, ax):
         assert mls.shape[0] == 1
@@ -217,6 +224,7 @@ class INSGT_SL(nn.Module):
         return self
 
     def forward(self, X: Tensor, length: int) -> Tensor:
+        X /= self.nsgt.scale
         Xshape = len(X.shape)
 
         X = torch.view_as_complex(X)

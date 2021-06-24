@@ -55,8 +55,8 @@ def train(args, unmix, encoder, device, train_sampler, optimizer):
         Ymag = cnorm(nsgt(y))
 
         loss = torch.nn.functional.mse_loss(
-            transforms.overlap_add_slicq(Ymag_hat),
-            transforms.overlap_add_slicq(Ymag),
+            Ymag_hat,
+            Ymag,
         )
 
         loss.backward()
@@ -106,12 +106,9 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
 
                 Ymag_hat = torch.cat(Ymagseg_hats, dim=3)
 
-                Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat)
-                Ymag_spectrogram = transforms.overlap_add_slicq(Ymag)
-
                 loss = torch.nn.functional.mse_loss(
-                        Ymag_hat_spectrogram,
-                        Ymag_spectrogram
+                    Ymag_hat,
+                    Ymag
                 )
 
                 losses.update(loss.item(), Ymag.size(1))
@@ -127,9 +124,12 @@ def valid(args, unmix, encoder, device, valid_sampler, sdr_criterion, seq_batch)
                     sdrs.update(sdr.item(), y_hat.size(1))
 
                     # permute for plotting
-                    Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).permute(0, 3, 2, 1)
-                    Ymag_hat_spectrogram = Ymag_hat_spectrogram.permute(0, 3, 2, 1)
-                    Ymag_spectrogram = Ymag_spectrogram.permute(0, 3, 2, 1)
+                    # trim to a reasonable size
+                    rightlim = max(16000, Xmag.shape[-1])
+
+                    Xmag_spectrogram = transforms.overlap_add_slicq(Xmag)[..., :rightlim].permute(0, 3, 2, 1)
+                    Ymag_hat_spectrogram = transforms.overlap_add_slicq(Ymag_hat)[..., :rightlim].permute(0, 3, 2, 1)
+                    Ymag_spectrogram = transforms.overlap_add_slicq(Ymag)[..., :rightlim].permute(0, 3, 2, 1)
 
                     ret_tup = (y_hat, Xmag_spectrogram, Ymag_spectrogram, Ymag_hat_spectrogram)
 

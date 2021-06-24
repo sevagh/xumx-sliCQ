@@ -9,7 +9,7 @@ set -x
 batch=1
 epochs=1000
 workers=4
-seqdur=10
+seqdur=1
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -28,6 +28,6 @@ do
 		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
 		--fixed-start=13 --samples-per-track=1 \
 		--seq-dur=$seqdur --patience=1000 \
-		$i --print-shapes \
+		$i \
 		--output "${outdir}"
 done

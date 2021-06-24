@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid
+from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d
 from .filtering import atan2
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq, inverse_ola_slicq
 from collections import defaultdict
@@ -40,7 +40,7 @@ class OpenUnmix(nn.Module):
             12, 20, 30, 40
         ]
         filters = [
-            (11, 42), (7, 7), (9, 9), (13, 13)
+            (11, 42), (7, 7), (9, 9), (13, 13),
         ]
         strides = [
             (1, 1), (1, 1), (1, 1), (1, 1)
@@ -73,7 +73,6 @@ class OpenUnmix(nn.Module):
 
         self.cdae = Sequential(*encoder, *decoder)
 
-
         if input_mean is not None:
             input_mean = (-input_mean).float()
         else:
@@ -104,10 +103,10 @@ class OpenUnmix(nn.Module):
 
         logging.info(f'-1. x {x.shape}')
 
-        mix = x.detach().clone()
+        #mix = x.detach().clone()
 
         logging.info(f'0. x {x.shape}')
-        logging.info(f'0. mix {mix.shape}')
+        #logging.info(f'0. mix {mix.shape}')
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
 
@@ -142,10 +141,20 @@ class OpenUnmix(nn.Module):
 
         x = inverse_ola_slicq(x, nb_slices, nb_m_bins)
 
-        logging.info(f'5. RETURN MASK {x.shape}')
+        #logging.info(f'5. REFINE {x.shape}')
 
-        mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        return x*mix
+        #x = x.reshape(-1, nb_channels*nb_f_bins)
+
+        #for i, layer in enumerate(self.refine):
+        #    sh1 = x.shape
+        #    x = layer(x)
+        #    logging.info(f'\t5-{i}. {sh1} -> {x.shape}')
+
+        logging.info(f'6. RETURN MASK {x.shape}')
+
+        #x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
+        #mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
+        return x#*mix
 
 
 class Separator(nn.Module):
