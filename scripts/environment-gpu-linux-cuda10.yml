@@ -25,6 +25,6 @@ dependencies:
     - torchinfo
     - matplotlib
     - line_profiler
-    - torch_lr_finder
     - tensorboard
     - torchvision
+    - memory_profiler

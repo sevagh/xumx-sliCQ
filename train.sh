@@ -6,10 +6,10 @@ outdir="umx-slicq-1"
 
 set -x
 
-batch=64
+batch=32
 epochs=1000
 workers=4
-seqdur=6
+seqdur=2
 
 #declare -a targetargs=(
 #	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
@@ -26,7 +26,7 @@ declare -a targetargs=(
 
 for i in "${targetargs[@]}"
 do
-	python -m kernprof -l -v scripts/train.py \
+	python scripts/train.py \
 		--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs --random-track-mix \
 		--seq-dur=$seqdur \
 		$i --debug \

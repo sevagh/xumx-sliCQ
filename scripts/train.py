@@ -9,6 +9,7 @@ import numpy as np
 import random
 from git import Repo
 import os
+import gc
 import io
 import copy
 import sys
@@ -32,7 +33,6 @@ from openunmix import filtering
 tqdm.monitor_interval = 0
 torch.autograd.set_detect_anomaly(True)
 
-_BIG_SPLIT = 5_000_000
 _PLOT_LIM = 16_000
 
 
@@ -44,7 +44,7 @@ def custom_mse_loss(output, target):
     return loss/len(target)
 
 
-@profile
+#@profile
 def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer):
     # unpack encoder object
     nsgt, _, cnorm = encoder
@@ -75,7 +75,7 @@ def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
 
     return losses.avg, Xmag
 
-
+@profile
 def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, slice_batch):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
@@ -444,7 +444,7 @@ def main():
         end = time.time()
         train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
 
-        # set the 3 spectrograms to None for now until i write code to plot the non-matrixform spectrogram
+        # set the 3 spectrograms to blank for now until i write code to plot the non-matrixform spectrogram
         valid_loss, valid_sdr, (audio_sample, _, _, _) = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, slice_batch)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
