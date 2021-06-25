@@ -6,7 +6,7 @@ outdir="umx-slicq-1"
 
 set -x
 
-batch=1
+batch=64
 epochs=1000
 workers=4
 seqdur=6
@@ -18,18 +18,18 @@ seqdur=6
 #	"--target=bass --fscale=bark --fbins=105 --fmin=25.4 --sllen=7180"
 #)
 
+#vocals:         8.704854496436832       ('bark', array([898]), 33.89999999999991, 19.5, 62084)
+
 declare -a targetargs=(
 	"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
 )
 
 for i in "${targetargs[@]}"
 do
-	python scripts/train.py \
-		--root "${musdbdebug}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs \
-		--fixed-start=23.2 --samples-per-track=1 \
-		--seq-dur=$seqdur --patience=1000 \
-		$i --print-shapes \
-		--output "${outdir}"
+	python -m kernprof -l -v scripts/train.py \
+		--root "${musdbdir}" --is-wav --nb-workers=$workers --batch-size=$batch --epochs=$epochs --random-track-mix \
+		--seq-dur=$seqdur \
+		$i --debug \
+		--output "${outdir}" \
+		--source-augmentations gain channelswap
 done
-
-# --random-track-mix

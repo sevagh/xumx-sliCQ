@@ -4,14 +4,126 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d
+from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d
 from .filtering import atan2
-from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq, inverse_ola_slicq
+from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
 import numpy as np
 import logging
 
 eps = 1.e-10
+
+
+class OpenUnmixTimeBucket(nn.Module):
+    def __init__(
+        self,
+        time_bucket,
+        slicq_sample_input,
+        unidirectional=False,
+        info=False,
+    ):
+        super(OpenUnmixTimeBucket, self).__init__()
+        
+        self.time_bucket = time_bucket
+
+        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
+
+        channels = [nb_channels, 25, 55]
+        layers = len(channels)-1
+
+        frequency_filter = max(nb_f_bins//layers, 1)
+
+        filters = [(frequency_filter, 7), (frequency_filter, 7)]
+        strides = [(1, 3), (1, 3)]
+        dilations = [(1, 1), (1, 1)]
+        output_paddings = [(0, 0), (0, 0)]
+
+        encoder = []
+        decoder = []
+
+        layers = len(filters)
+
+        for i in range(layers):
+            encoder.append(
+                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False)
+            )
+            encoder.append(
+                BatchNorm2d(channels[i+1]),
+            )
+            encoder.append(
+                ReLU(),
+            )
+
+        for i in range(layers,0,-1):
+            decoder.append(
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False)
+            )
+            decoder.append(
+                BatchNorm2d(channels[i-1])
+            )
+            decoder.append(
+                ReLU()
+            )
+
+        self.cdae = Sequential(*encoder, *decoder)
+
+        self.grow = Sequential(
+            ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True),
+            Sigmoid()
+        )
+
+        self.mask = True
+
+    def freeze(self):
+        # set all parameters as not requiring gradient, more RAM-efficient
+        # at test time
+        for p in self.parameters():
+            p.requires_grad = False
+        self.eval()
+
+    def forward(self, x: Tensor) -> Tensor:
+        mix = x.detach().clone()
+        logging.info(f'0. mix shape: {mix.shape}')
+        logging.info(f'0. x shape: {x.shape}')
+
+        x_shape = x.shape
+        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
+
+        #x = torch.flatten(x, start_dim=-2, end_dim=-1)
+        x = overlap_add_slicq(x)
+
+        logging.info(f'1. PRE-CDAE: {x.shape}')
+
+        for i, layer in enumerate(self.cdae):
+            sh1 = x.shape
+            x = layer(x)
+            logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
+
+        logging.info(f'3. POST-CDAE: {x.shape}')
+
+        logging.info(f'4. GROW: {x.shape}')
+
+        for i, layer in enumerate(self.grow):
+            sh1 = x.shape
+            x = layer(x)
+            logging.info(f'\t4-{i}. {sh1} -> {x.shape}')
+
+        logging.info(f'5. POST-GROW: {x.shape}')
+        
+        # crop
+        x = x[:, :, :, : nb_t_bins*nb_slices]
+
+        logging.info(f'6. CROPPED: {x.shape}')
+
+        x = x.reshape(x_shape)
+
+        logging.info(f'7. mix shape: {mix.shape}')
+        logging.info(f'7. mask shape: {x.shape}')
+
+        if self.mask:
+            x = x * mix
+
+        return x
 
 
 class OpenUnmix(nn.Module):
@@ -24,9 +136,7 @@ class OpenUnmix(nn.Module):
 
     def __init__(
         self,
-        nb_bins,
-        M,
-        nb_channels=2,
+        jagged_slicq_sample_input,
         input_mean=None,
         input_scale=None,
         unidirectional=False,
@@ -34,57 +144,24 @@ class OpenUnmix(nn.Module):
     ):
         super(OpenUnmix, self).__init__()
 
-        self.nb_bins = nb_bins
+        self.bucketed_unmixes = nn.ModuleDict()
 
-        channels = [nb_channels,
-            12, 20, 30, 40
-        ]
-        filters = [
-            (11, 42), (11, 23), (9, 9), (7, 7)
-        ]
-        strides = [
-            (1, 1), (1, 1), (1, 1), (1, 1)
-        ]
-        dilations = [
-            (1, 2), (1, 4), (1, 8), (1, 16)
-        ]
-        output_paddings = [
-            (0, 0), (0, 0), (0, 0), (0, 0)
-        ]
+        for time_bucket, C_block in jagged_slicq_sample_input.items():
+            bucket_name = str(time_bucket)
+            self.bucketed_unmixes[bucket_name] = OpenUnmixTimeBucket(bucket_name, C_block)
 
-        encoder = nn.ModuleList()
-        decoder = nn.ModuleList()
+        #if input_mean is not None:
+        #    input_mean = (-input_mean).float()
+        #else:
+        #    input_mean = torch.zeros(self.nb_bins)
 
-        layers = len(filters)
+        #if input_scale is not None:
+        #    input_scale = (1.0 / input_scale).float()
+        #else:
+        #    input_scale = torch.ones(self.nb_bins)
 
-        for i in range(layers):
-           encoder.extend([
-               Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False),
-               BatchNorm2d(channels[i+1]),
-               ReLU(),
-            ])
-
-        for i in range(layers,0,-1):
-            decoder.extend([
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False),
-                BatchNorm2d(channels[i-1]),
-                ReLU(),
-             ])
-
-        self.cdae = Sequential(*encoder, *decoder)
-
-        if input_mean is not None:
-            input_mean = (-input_mean).float()
-        else:
-            input_mean = torch.zeros(self.nb_bins)
-
-        if input_scale is not None:
-            input_scale = (1.0 / input_scale).float()
-        else:
-            input_scale = torch.ones(self.nb_bins)
-
-        self.input_mean = Parameter(input_mean)
-        self.input_scale = Parameter(input_scale)
+        #self.input_mean = Parameter(input_mean)
+        #self.input_scale = Parameter(input_scale)
 
         self.info = info
         if self.info:
@@ -97,54 +174,9 @@ class OpenUnmix(nn.Module):
             p.requires_grad = False
         self.eval()
 
-    def forward(self, x: Tensor) -> Tensor:
-        if self.info:
-            print()
-
-        logging.info(f'-1. x {x.shape}')
-
-        mix = x.detach().clone()
-
-        logging.info(f'0. x {x.shape}')
-        logging.info(f'0. mix {mix.shape}')
-
-        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = x.shape
-
-        logging.info(f'1. OVERLAP-ADD TEMPORAL POOLING {x.shape}')
-        x = overlap_add_slicq(x)
-
-        logging.info(f'2. OVERLAP-ADDED SHAPE {x.shape}')
-
-        # shift and scale input to mean=0.5 std=1 (across all bins)
-        # move frequency bins to the end, then back
-        x = x.permute(0, 1, 3, 2)
-        x = x + self.input_mean[: self.nb_bins]
-        x = x * self.input_scale[: self.nb_bins]
-        x = x.permute(0, 1, 3, 2)
-
-        logging.info(f'3. POST-WHITEN {x.shape}')
-        logging.info(f'3. CDAE {x.shape}')
-
-        #skip = None
-
-        for i, layer in enumerate(self.cdae):
-            sh1 = x.shape
-            #if i == len(self.cdae)-6:
-            #    x += skip
-            x = layer(x)
-            #if i == 5:
-            #    skip = x.clone()
-            logging.info(f'\t3-{i}. {sh1} -> {x.shape}')
-
-        logging.info(f'4. POST-CDAE {x.shape}')
-        logging.info(f'4. INVERSE OLA {x.shape}')
-
-        x = inverse_ola_slicq(x, nb_slices, nb_m_bins)
-        logging.info(f'6. RETURN MASK {x.shape}')
-
-        x = x.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        mix = mix.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-        return x*mix
+    def forward(self, time_bucket: str, x: Tensor) -> Tensor:
+        y = self.bucketed_unmixes[time_bucket](x)
+        return y
 
 
 class Separator(nn.Module):

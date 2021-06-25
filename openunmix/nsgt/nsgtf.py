@@ -14,13 +14,14 @@ AudioMiner project, supported by Vienna Science and Technology Fund (WWTF)
 import numpy as np
 import torch
 from math import ceil
+import matplotlib.pyplot as plt
 
 from .util import chkM
 from .fft import fftp, ifftp
 
 
 #@profile
-def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, measurefft=False, multithreading=False, device="cuda"):
+def nsgtf_sl(f_slices, g, wins, nn, M=None, matrixform=False, real=False, reducedform=0, measurefft=False, multithreading=False, device="cuda", time_buckets=None):
     M = chkM(M,g)
     dtype = g[0].dtype
     
@@ -48,10 +49,10 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, measureff
         p = (mii,win_range,Lg,col)
         loopparams.append(p)
 
+    jagged_indices = [None]*len(loopparams)
+
     ragged_giis = [torch.nn.functional.pad(torch.unsqueeze(gii, dim=0), (0, maxLg-gii.shape[0])) for gii in g[sl]]
     giis = torch.conj(torch.cat(ragged_giis))
-
-    #f = torch.cat([torch.unsqueeze(f, dim=0) for f in f_slices])
 
     ft = fft(f_slices)
 
@@ -59,22 +60,45 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, measureff
 
     assert nn == Ls
 
-    # The actual transform
-    c = torch.empty(*f_slices.shape[:2], len(loopparams), maxLg, dtype=ft.dtype, device=torch.device(device))
+    if matrixform:
+        c = torch.empty(*f_slices.shape[:2], len(loopparams), maxLg, dtype=ft.dtype, device=torch.device(device))
 
-    # TODO: torchify it
-    for j, (mii,win_range,Lg,col) in enumerate(loopparams):
-        t = ft[:, :, win_range]*torch.fft.fftshift(torch.conj(giis[j, :Lg]))
+        for j, (mii,win_range,Lg,col) in enumerate(loopparams):
+            t = ft[:, :, win_range]*torch.fft.fftshift(giis[j, :Lg])
 
-        c[:, :, j, :(Lg+1)//2] = t[:, :, Lg//2:]  # if mii is odd, this is of length mii-mii//2
-        c[:, :, j, -(Lg//2):] = t[:, :, :Lg//2]  # if mii is odd, this is of length mii//2
-        c[:, :, j, (Lg+1)//2:-(Lg//2)] = 0  # clear gap (if any)
+            sl1 = slice(None,(Lg+1)//2)
+            sl2 = slice(-(Lg//2),None)
 
-    y = ifft(c)
-    
-    return y
+            c[:, :, j, sl1] = t[:, :, Lg//2:]  # if mii is odd, this is of length mii-mii//2
+            c[:, :, j, sl2] = t[:, :, :Lg//2]  # if mii is odd, this is of length mii//2
+            c[:, :, j, (Lg+1)//2:-(Lg//2)] = 0  # clear gap (if any)
 
+        return ifft(c)
+    else:
+        bucketed_tensors = {b: [] for b in time_buckets}
+        ret = {b: None for b in time_buckets}
+
+        for j, (mii,win_range,Lg,col) in enumerate(loopparams):
+            c = torch.empty(*f_slices.shape[:2], 1, Lg, dtype=ft.dtype, device=torch.device(device))
+
+            t = ft[:, :, win_range]*torch.fft.fftshift(giis[j, :Lg])
+
+            sl1 = slice(None,(Lg+1)//2)
+            sl2 = slice(-(Lg//2),None)
+
+            c[:, :, 0, sl1] = t[:, :, Lg//2:]  # if mii is odd, this is of length mii-mii//2
+            c[:, :, 0, sl2] = t[:, :, :Lg//2]  # if mii is odd, this is of length mii//2
+            c[:, :, 0, (Lg+1)//2:-(Lg//2)] = 0  # clear gap (if any)
+
+            bucketed_tensors[Lg].append(c)
+
+        # bucket-wise ifft
+        for b, v in bucketed_tensors.items():
+            ret[b] = ifft(torch.cat(v, dim=2))
+
+        return ret
         
+
 # non-sliced version
 def nsgtf(f, g, wins, nn, M=None, real=False, reducedform=0, measurefft=False, multithreading=False, device="cuda"):
     ret = nsgtf_sl(torch.unsqueeze(f, dim=0), g, wins, nn, M=M, real=real, reducedform=reducedform, measurefft=measurefft, multithreading=multithreading, device=device)

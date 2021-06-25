@@ -11,6 +11,24 @@ import warnings
 from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, VQLogScale, OctScale
 
 
+def overlap_add_slicq(slicq):
+    nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
+
+    window = nb_m_bins
+    hop = window//2 # 50% overlap window
+
+    ncoefs = nb_slices*nb_m_bins//2 + hop
+    out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
+
+    ptr = 0
+
+    for i in range(nb_slices):
+        out[:, :, :, ptr:ptr+window] += slicq[:, :, :, i, :]
+        ptr += hop
+
+    return out
+
+
 def phasemix_sep(X, Ymag):
     Xphase = atan2(X[..., 1], X[..., 0])
     Ycomplex = torch.empty_like(X)
@@ -18,56 +36,6 @@ def phasemix_sep(X, Ymag):
     Ycomplex[..., 0] = Ymag * torch.cos(Xphase)
     Ycomplex[..., 1] = Ymag * torch.sin(Xphase)
     return Ycomplex
-
-
-def _slicq_wins(window, device):
-    ws = torch.sqrt(torch.hann_window(window, periodic=False, device=device))
-    wa = torch.sqrt(torch.hann_window(window, periodic=False, device=device))
-
-    hop = window//2 # 50% overlap window
-
-    return ws, wa, hop
-
-
-def overlap_add_slicq(slicq):
-    nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins = slicq.shape
-    return torch.flatten(slicq, start_dim=-2, end_dim=-1)
-
-    #window = nb_m_bins
-    #w, _, hop = _slicq_wins(window, slicq.device)
-
-    #ncoefs = nb_slices*nb_m_bins//2 + hop
-    #out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
-
-    #ptr = 0
-
-    #for i in range(nb_slices):
-    #    out[:, :, :, ptr:ptr+window] += w*slicq[:, :, :, i, :]
-    #    ptr += hop
-
-    #return out
-
-
-def inverse_ola_slicq(slicq, nb_slices, nb_m_bins):
-    nb_samples, nb_channels, nb_f_bins, ncoefs = slicq.shape
-    #return torch.unflatten(slicq, (nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins))
-    return slicq.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins)
-
-    window = nb_m_bins
-    wa, ws, hop = _slicq_wins(window, slicq.device)
-
-    assert(ncoefs == (nb_slices*nb_m_bins//2 + hop))
-
-    out = torch.zeros((nb_samples, nb_channels, nb_f_bins, nb_slices, nb_m_bins), dtype=slicq.dtype, device=slicq.device)
-
-    ptr = 0
-
-    for i in range(nb_slices):
-        out[:, :, :, i, :] += ws*slicq[:, :, :, ptr:ptr+window]
-        ptr += hop
-
-    out *= hop/torch.sum(ws*wa)
-    return out
 
 
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
@@ -86,7 +54,6 @@ class NSGTBase(nn.Module):
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fs/2
-        self.scale = 1.
 
         self.scl = None
         if scale == 'bark':
@@ -113,7 +80,7 @@ class NSGTBase(nn.Module):
         trlen = trlen + -trlen % 2 # make trlen divisible by 2
         self.trlen = trlen
 
-        self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=True, multichannel=True, device=device)
+        self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=False, multichannel=True, device=device)
         self.M = self.nsgt.ncoefs
         self.fs = fs
         self.fbins_actual = self.nsgt.fbins_actual
@@ -126,27 +93,14 @@ class NSGTBase(nn.Module):
         return max_bin+1
 
     def predict_input_size(self, batch_size, nb_channels, seq_dur_s):
+        fwd = NSGT_SL(self)
+
         x = torch.rand((batch_size, nb_channels, int(seq_dur_s*self.fs)), dtype=torch.float32)
         shape = x.size()
         nb_samples, nb_channels, nb_timesteps = shape
 
-        # pack batch
-        x = x.view(-1, shape[-1])
-
-        C = self.nsgt.forward((x,))
-        #S, I, F, T = C.shape
-        # slice, channels, frequency bins, time bins
-
-        # first, moveaxis S, I, F, T to I, F, S, T
-        C = torch.moveaxis(C, 0, -2)
-
-        nsgt_f = torch.view_as_real(C)
-
-        # unpack batch
-        nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
-
-        # real shape is magnitude, dropping implicit complex dimension
-        return nsgt_f, nsgt_f.shape[:-1]
+        nsgt_f = fwd(x)
+        return nsgt_f
 
     def _apply(self, fn):
         self.nsgt._apply(fn)
@@ -180,18 +134,14 @@ class NSGT_SL(nn.Module):
 
         C = self.nsgt.nsgt.forward((x,))
 
-        #S, I, F, T = C.shape
-        # slice, channels, frequency bins, time bins
+        for time_bucket, nsgt_f in C.items():
+            nsgt_f = torch.moveaxis(nsgt_f, 0, -2)
+            nsgt_f = torch.view_as_real(nsgt_f)
+            # unpack batch
+            nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
+            C[time_bucket] = nsgt_f
 
-        # first, moveaxis S, I, F, T to I, F, S, T
-        C = torch.moveaxis(C, 0, -2)
-
-        nsgt_f = torch.view_as_real(C)
-
-        # unpack batch
-        nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
-
-        return nsgt_f*self.nsgt.scale
+        return C
 
     def plot_spectrogram(self, mls, ax):
         assert mls.shape[0] == 1
@@ -226,23 +176,26 @@ class INSGT_SL(nn.Module):
         self.nsgt._apply(fn)
         return self
 
-    def forward(self, X: Tensor, length: int) -> Tensor:
-        X /= self.nsgt.scale
-        Xshape = len(X.shape)
+    def forward(self, X_dict: Tensor, length: int) -> Tensor:
+        X_complex = {}
+        for time_bucket, X in X_dict.items():
+            Xshape = len(X.shape)
 
-        X = torch.view_as_complex(X)
+            X = torch.view_as_complex(X)
 
-        shape = X.shape
+            shape = X.shape
 
-        if Xshape == 6:
-            X = X.view(X.shape[0]*X.shape[1], *X.shape[2:])
-        else:
-            X = X.view(X.shape[0]*X.shape[1]*X.shape[2], *X.shape[3:])
+            if Xshape == 6:
+                X = X.view(X.shape[0]*X.shape[1], *X.shape[2:])
+            else:
+                X = X.view(X.shape[0]*X.shape[1]*X.shape[2], *X.shape[3:])
 
-        # moveaxis back into into T x [packed-channels] x F1 x F2
-        X = torch.moveaxis(X, -2, 0)
+            # moveaxis back into into T x [packed-channels] x F1 x F2
+            X = torch.moveaxis(X, -2, 0)
 
-        y = self.nsgt.nsgt.backward(X, length)
+            X_complex[time_bucket] = X
+
+        y = self.nsgt.nsgt.backward(X_complex, length)
 
         # unpack batch
         y = y.view(*shape[:-3], -1)
@@ -266,21 +219,16 @@ class ComplexNorm(nn.Module):
         self.power = power
         self.mono = mono
 
-    def forward(self, spec: Tensor) -> Tensor:
-        """
-        Args:
-            spec: complex_tensor (Tensor): Tensor shape of
-                `(..., complex=2)`
-
-        Returns:
-            Tensor: Power/Mag of input
-                `(...,)`
-        """
+    def forward(self, spec: dict[Tensor]) -> Tensor:
         # take the magnitude
-        spec = torch.pow(torch.abs(torch.view_as_complex(spec)), self.power)
 
-        # downmix in the mag domain to preserve energy
-        if self.mono:
-            spec = torch.mean(spec, 1, keepdim=True)
+        ret = {}
+        for time_bucket, C_block in spec.items():
+            C_block = torch.pow(torch.abs(torch.view_as_complex(C_block)), self.power)
 
-        return spec
+            # downmix in the mag domain to preserve energy
+            if self.mono:
+                C_block = torch.mean(C_block, 1, keepdim=True)
+            ret[time_bucket] = C_block
+
+        return ret

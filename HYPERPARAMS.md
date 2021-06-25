@@ -1,5 +1,41 @@
 ## Choosing best NSGT
 
+# single target
+
+```
+best scores
+total:  8.752033272285418       ('bark', array([850]), 30.09999999999993, 45.300000000000004, 58696)
+```
+
+```
+best scores
+total:  8.30844429398954        ('bark', array([281]), 14.499999999999984, 32.4, 19260)
+
+```
+
+# sllen <= 264600 (giant 6s slices)
+
+seed 1:
+
+```
+$ python scripts/slicq_explore.py --seq-dur-min=6 --seq-dur-max=6 --seq-reps=12 --random-seed=35 --n-iter=60 --sllen=264600  --per-target --fscale='mel,bark' --bins="100,2000,1" --max-sllen=264600
+best scores
+bass:   7.805986587733148       ('bark', array([669]), 49.399999999999864, 82.80000000000001, 46436)
+drums:  8.24299856283888        ('mel', array([102]), 107.39999999999965, 96.10000000000001, 6612)
+other:  12.288555524165337      ('mel', array([515]), 44.99999999999987, 67.4, 35600)
+vocals:         8.480903132587716       ('bark', array([671]), 41.899999999999885, 79.7, 46480)
+```
+
+seed 2:
+```
+$ python scripts/slicq_explore.py --seq-dur-min=6 --seq-dur-max=6 --seq-reps=12 --random-seed=42 --n-iter=60 --sllen=264600  --per-target --fscale='mel,bark' --bins="100,2000,1" --max-sllen=264600
+best scores
+bass:   8.274528281827637       ('bark', array([810]), 30.09999999999993, 45.300000000000004, 55932)
+drums:  9.272527113677704       ('bark', array([1652]), 64.9999999999998, 12.200000000000001, 115192)
+other:  11.385197682309528      ('bark', array([1652]), 64.9999999999998, 12.200000000000001, 115192)
+vocals:         8.704854496436832       ('bark', array([898]), 33.89999999999991, 19.5, 62084)
+```
+
 # sllen <= 8192
 
 2 runs with 2 random seeds:
