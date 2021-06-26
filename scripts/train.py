@@ -1,8 +1,8 @@
 import argparse
 import torch
+import subprocess
 import time
 from pathlib import Path
-import sklearn.preprocessing
 import tqdm
 import json
 import numpy as np
@@ -44,7 +44,6 @@ def custom_mse_loss(output, target):
     return loss/len(target)
 
 
-#@profile
 def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer):
     # unpack encoder object
     nsgt, _, cnorm = encoder
@@ -61,8 +60,7 @@ def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
         Xmag = cnorm(X)
         Ymag = cnorm(nsgt(y))
 
-        futures = {time_bucket: torch.jit.fork(unmix, str(time_bucket), Xmag_block) for time_bucket, Xmag_block in Xmag.items()}
-        Ymag_hat = {time_bucket: torch.jit.wait(future) for time_bucket, future in futures.items()}
+        Ymag_hat = unmix(Xmag)
 
         loss = mse_criterion(
             Ymag_hat,
@@ -75,8 +73,7 @@ def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
 
     return losses.avg, Xmag
 
-@profile
-def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, slice_batch):
+def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion):
     # unpack encoder object
     nsgt, insgt, cnorm = encoder
 
@@ -91,12 +88,12 @@ def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criter
         for x, y in pbar:
             pbar.set_description("Validation batch")
             x, y = x.to(device), y.to(device)
+
             X = nsgt(x)
             Xmag = cnorm(X)
             Ymag = cnorm(nsgt(y))
 
-            futures = {time_bucket: torch.jit.fork(unmix, str(time_bucket), Xmag_block) for time_bucket, Xmag_block in Xmag.items()}
-            Ymag_hat = {time_bucket: torch.jit.wait(future) for time_bucket, future in futures.items()}
+            Ymag_hat = unmix(Xmag)
 
             loss = mse_criterion(
                 Ymag_hat,
@@ -120,45 +117,6 @@ def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criter
                 ret_tup = (y_hat, None, None, None)
 
         return losses.avg, sdrs.avg, ret_tup
-
-
-def get_statistics(args, encoder, dataset):
-    # unpack encoder object
-    nsgt, _, cnorm = encoder
-    encoder = torch.nn.Sequential(nsgt, cnorm)
-
-    encoder = copy.deepcopy(encoder).to("cpu")
-
-    scaler = sklearn.preprocessing.StandardScaler()
-
-    dataset_scaler = copy.deepcopy(dataset)
-    if isinstance(dataset_scaler, data.SourceFolderDataset):
-        dataset_scaler.random_chunks = False
-    else:
-        dataset_scaler.random_chunks = False
-        dataset_scaler.seq_duration = None
-
-    dataset_scaler.samples_per_track = 1
-    dataset_scaler.augmentations = None
-    dataset_scaler.random_track_mix = False
-    dataset_scaler.random_interferer_mix = False
-
-    pbar = tqdm.tqdm(range(len(dataset_scaler)), disable=args.quiet)
-
-    for ind in pbar:
-        x, y = dataset_scaler[ind]
-        pbar.set_description("Compute dataset statistics")
-        N = x.shape[-1]
-
-        # downmix to mono channel
-        # norm across frequency bins
-        Xmag = encoder(torch.unsqueeze(x, dim=0))
-        Xmag_spectrogram = transforms.overlap_add_slicq(Xmag).mean(1, keepdim=False).permute(0, 2, 1)
-
-        scaler.partial_fit(np.squeeze(Xmag_spectrogram.cpu().detach()))
-
-    # set inital input scaler values
-    return scaler.mean_, scaler.scale_
 
 
 def main():
@@ -291,6 +249,9 @@ def main():
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
     )
+    parser.add_argument(
+        "--cuda-device", type=int, default=-1, help="choose which gpu to train on (-1 = 'cuda' in pytorch)"
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -315,6 +276,9 @@ def main():
     random.seed(args.seed)
 
     device = torch.device("cuda" if use_cuda else "cpu")
+
+    if use_cuda and args.cuda_device >= 0:
+        device = torch.device(args.cuda_device)
 
     train_dataset, valid_dataset, args = data.load_datasets(parser, args)
 
@@ -363,38 +327,20 @@ def main():
     with open(Path(target_path, "separator.json"), "w") as outfile:
         outfile.write(json.dumps(separator_conf, indent=4, sort_keys=True))
 
-    if args.model or args.debug:
-        scaler_mean = None
-        scaler_std = None
-    else:
-        scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset)
-        scaler_mean = torch.tensor(scaler_mean, device=device)
-        scaler_std = torch.tensor(scaler_std, device=device)
-
-
     jagged_slicq = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
-
-    # small slice for inference to avoid oom
-    slice_batch = next(iter(jagged_slicq.values())).shape[3]
 
     jagged_slicq = cnorm(jagged_slicq)
 
     unmix = model.OpenUnmix(
         jagged_slicq,
-        input_mean=scaler_mean,
-        input_scale=scaler_std,
         info=args.print_shapes,
     ).to(device)
 
-    #torchinfo.summary(unmix, input_size=
-    #    (
-    #        jagged_slicq,
-    #    )
-    #)
+    #TODO: enable this when its fixed
+    #torchinfo.summary(unmix, input_data=jagged_slicq)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sdr_criterion = auraloss.time.SISDRLoss()
-    #mse_criterion = torch.nn.MSELoss(reduction='mean')
     mse_criterion = custom_mse_loss
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -439,13 +385,16 @@ def main():
 
     fig, axs = plt.subplots(3)
 
+    print('Starting Tensorboard')
+    subprocess.Popen(["tensorboard", "--logdir", tboard_path])
+
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
         train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
 
         # set the 3 spectrograms to blank for now until i write code to plot the non-matrixform spectrogram
-        valid_loss, valid_sdr, (audio_sample, _, _, _) = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion, slice_batch)
+        valid_loss, valid_sdr, (audio_sample, _, _, _) = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion)
 
         audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 
@@ -492,6 +441,7 @@ def main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
+            #TODO support spectrogram plotting with jagged input
             #nsgt.plot_spectrogram(20.*torch.log10(X_spec), axs[0])
             #nsgt.plot_spectrogram(20.*torch.log10(Y_spec), axs[1])
             #nsgt.plot_spectrogram(20.*torch.log10(Y_spec_hat), axs[2])

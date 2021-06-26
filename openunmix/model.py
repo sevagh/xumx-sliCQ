@@ -43,6 +43,9 @@ class OpenUnmixTimeBucket(nn.Module):
 
         layers = len(filters)
 
+        # batchnorm instead of data preprocessing/whitening
+        encoder.append(BatchNorm2d(nb_channels))
+
         for i in range(layers):
             encoder.append(
                 Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False)
@@ -137,8 +140,6 @@ class OpenUnmix(nn.Module):
     def __init__(
         self,
         jagged_slicq_sample_input,
-        input_mean=None,
-        input_scale=None,
         unidirectional=False,
         info=False,
     ):
@@ -149,19 +150,6 @@ class OpenUnmix(nn.Module):
         for time_bucket, C_block in jagged_slicq_sample_input.items():
             bucket_name = str(time_bucket)
             self.bucketed_unmixes[bucket_name] = OpenUnmixTimeBucket(bucket_name, C_block)
-
-        #if input_mean is not None:
-        #    input_mean = (-input_mean).float()
-        #else:
-        #    input_mean = torch.zeros(self.nb_bins)
-
-        #if input_scale is not None:
-        #    input_scale = (1.0 / input_scale).float()
-        #else:
-        #    input_scale = torch.ones(self.nb_bins)
-
-        #self.input_mean = Parameter(input_mean)
-        #self.input_scale = Parameter(input_scale)
 
         self.info = info
         if self.info:
@@ -174,8 +162,9 @@ class OpenUnmix(nn.Module):
             p.requires_grad = False
         self.eval()
 
-    def forward(self, time_bucket: str, x: Tensor) -> Tensor:
-        y = self.bucketed_unmixes[time_bucket](x)
+    def forward(self, x: dict[Tensor]) -> Tensor:
+        futures = {time_bucket: torch.jit.fork(self.bucketed_unmixes[str(time_bucket)], Xmag_block) for time_bucket, Xmag_block in x.items()}
+        y = {time_bucket: torch.jit.wait(future) for time_bucket, future in futures.items()}
         return y
 
 

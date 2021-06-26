@@ -9,7 +9,6 @@ dependencies:
   - numpy
   - scipy
   - pytorch==1.9
-  - scikit-learn
   - torchaudio
   - cudatoolkit=11
   - tqdm
