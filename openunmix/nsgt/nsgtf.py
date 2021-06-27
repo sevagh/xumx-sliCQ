@@ -14,7 +14,6 @@ AudioMiner project, supported by Vienna Science and Technology Fund (WWTF)
 import numpy as np
 import torch
 from math import ceil
-import matplotlib.pyplot as plt
 
 from .util import chkM
 from .fft import fftp, ifftp
