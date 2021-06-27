@@ -9,6 +9,8 @@ import numpy as np
 import random
 from git import Repo
 import os
+import signal
+import atexit
 import gc
 import io
 import copy
@@ -386,7 +388,16 @@ def main():
     fig, axs = plt.subplots(3)
 
     print('Starting Tensorboard')
-    subprocess.Popen(["tensorboard", "--logdir", tboard_path])
+    tboard_proc = subprocess.Popen(["tensorboard", "--logdir", tboard_path])
+    tboard_pid = tboard_proc.pid
+
+    def kill_tboard():
+        if tboard_pid is None:
+            pass
+        print('Killing backgrounded Tensorboard process...')
+        os.kill(tboard_pid, signal.SIGTERM)
+
+    atexit.register(kill_tboard)
 
     for epoch in t:
         t.set_description("Training Epoch")
@@ -394,9 +405,9 @@ def main():
         train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
 
         # set the 3 spectrograms to blank for now until i write code to plot the non-matrixform spectrogram
-        valid_loss, valid_sdr, (audio_sample, _, _, _) = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion)
+        valid_loss, valid_sdr, _ = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion)
 
-        audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
+        #audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
 
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
@@ -457,11 +468,13 @@ def main():
             tboard_writer.add_scalar('Loss (MSE)/train', train_loss, epoch)
             tboard_writer.add_scalar('Loss (MSE)/valid', valid_loss, epoch)
             tboard_writer.add_scalar('SI-SDR/valid', valid_sdr, epoch)
-            tboard_writer.add_audio(f"valid-sep-{epoch}", audio_sample, global_step=epoch)
+            #tboard_writer.add_audio(f"valid-sep-{epoch}", audio_sample, global_step=epoch)
 
         if stop:
             print("Apply Early Stopping")
             break
+
+        gc.collect()
 
     if tboard_writer is not None:
         tboard_writer.add_graph(unmix, (last_Xmag))

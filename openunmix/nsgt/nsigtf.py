@@ -126,7 +126,7 @@ def nsigtf_sl(cseq, gd, wins, nn, Ls=None, real=False, reducedform=0, matrixform
         fbin_ptr = 0
         for Lg_outer, fc in cseq.items():
             nb_fbins = fc.shape[2]
-            for i,(wr1,wr2,Lg) in enumerate(loopparams[fbin_ptr:fbin_ptr+nb_fbins]):
+            for i,(wr1,wr2,Lg) in enumerate(loopparams[fbin_ptr:fbin_ptr+nb_fbins][:fbins]):
                 freq_idx = fbin_ptr+i
 
                 assert Lg == Lg_outer

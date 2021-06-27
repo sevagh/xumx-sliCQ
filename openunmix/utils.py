@@ -132,15 +132,13 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
         nb_channels = results["args"]["nb_channels"]
 
         seq_dur = results["args"]["seq_dur"]
-        slicq_shape = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
-        ncoefs = int(nsgt_base.nsgt.coef_factor*seq_dur*sample_rate)
-        seq_batch = slicq_shape[-2]
+
+        jagged_slicq = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
+        cnorm = model.ComplexNorm().to(device)
+        jagged_slicq = cnorm(jagged_slicq)
 
         models[target] = model.OpenUnmix(
-            nsgt_base.fbins_actual,
-            nsgt_base.M,
-            ncoefs=ncoefs,
-            nb_channels=nb_channels,
+                jagged_slicq
         )
 
         models_nsgt[target] = nsgt_base

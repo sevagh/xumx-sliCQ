@@ -252,30 +252,19 @@ class Separator(nn.Module):
         estimates = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
 
         for j, (target_name, target_module) in enumerate(self.target_models.items()):
-            print(f'separating {target_name}')
-
             nsgt = self.nsgts[target_name]['nsgt']
             insgt = self.nsgts[target_name]['insgt']
-
-            _, slicq_shape = nsgt.nsgt.predict_input_size(1, 2, self.seq_dur)
-            seq_batch = slicq_shape[-2]
 
             X = nsgt(audio)
             Xmag = self.complexnorm(X)
 
-            Xmagsegs = torch.split(Xmag, seq_batch, dim=3)
-            Ymagsegs = []
+            Ymag = target_module(Xmag)
 
-            for Xmagseg in Xmagsegs:
-                # apply current model to get the source magnitude spectrogram
-                Ymagseg = target_module(Xmagseg.detach().clone())
-                Ymagsegs.append(Ymagseg)
+            Ycomplex = {}
+            for time_bucket, X_block in X.items():
+                Ycomplex[time_bucket] = phasemix_sep(X_block, Ymag[time_bucket])
 
-            Ymag = torch.cat(Ymagsegs, dim=3)
-
-            Y = phasemix_sep(X, Ymag)
-            y = insgt(Y, audio.shape[-1])
-
+            y = insgt(Ycomplex, audio.shape[-1])
             estimates[..., j] = y
 
         # getting to (nb_samples, nb_targets, nb_channels, nb_samples)
