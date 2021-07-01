@@ -53,9 +53,9 @@ def arrange(cseq, fwd, device="cuda"):
 
         # even indices
         cseq[::2, :, :, :] = torch.cat((cseq[::2, :, :, even_mid:], cseq[::2, :, :, :even_mid]), dim=-1)
-    elif type(cseq) == dict:
-        for time_bucket, cseq_tsor, in sorted(cseq.items()):
-            cseq[time_bucket] = arrange(cseq_tsor, fwd, device)
+    elif type(cseq) == list:
+        for i, cseq_tsor in enumerate(cseq):
+            cseq[i] = arrange(cseq_tsor, fwd, device)
     else:
         raise ValueError(f'unsupported type {type(cseq)}')
 
@@ -141,7 +141,6 @@ class NSGT_sliced(torch.nn.Module):
         self.ncoefs = max(int(ceil(float(len(gii))/mii))*mii for mii,gii in zip(self.M[sl],self.g[sl]))
 
         self.matrixform = matrixform
-        self.time_buckets = None
         
         if self.matrixform:
             if self.reducedform:
@@ -149,8 +148,6 @@ class NSGT_sliced(torch.nn.Module):
                 self.M[:] = rm.max()
             else:
                 self.M[:] = self.M.max()
-        else:
-            self.time_buckets = np.unique(self.M)
 
         if multichannel:
             self.channelize = lambda seq: seq
@@ -165,7 +162,7 @@ class NSGT_sliced(torch.nn.Module):
         self.setup_lambdas()
         
     def setup_lambdas(self):
-        self.fwd = lambda fc: nsgtf_sl(fc, self.g, self.wins, self.nn, self.M, real=self.real, reducedform=self.reducedform, matrixform=self.matrixform, measurefft=self.measurefft, multithreading=self.multithreading, device=self.device, time_buckets=self.time_buckets)
+        self.fwd = lambda fc: nsgtf_sl(fc, self.g, self.wins, self.nn, self.M, real=self.real, reducedform=self.reducedform, matrixform=self.matrixform, measurefft=self.measurefft, multithreading=self.multithreading, device=self.device)
         self.bwd = lambda cc: nsigtf_sl(cc, self.gd, self.wins, self.nn, self.sl_len ,real=self.real, reducedform=self.reducedform, matrixform=self.matrixform, measurefft=self.measurefft, multithreading=self.multithreading, device=self.device)
 
     def _apply(self, fn):

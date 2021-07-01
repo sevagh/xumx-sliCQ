@@ -298,7 +298,7 @@ def expectation_maximization(
             t = torch.arange(pos, min(nb_frames, pos + batch_size))
             pos = int(t[-1]) + 1
 
-            y[t, ...] = torch.tensor(0.0, device=x.device)
+            y[t, ...] = torch.tensor(0.0, device=x.device, dtype=y.dtype)
 
             # compute mix covariance matrix
             Cxx = regularization
@@ -468,12 +468,14 @@ def wiener(
     mix_stft = mix_stft / max_abs
     y = y / max_abs
 
+    y = y.to(torch.float64)
+
     # call expectation maximization
-    y = expectation_maximization(y, mix_stft, iterations, eps=eps)[0]
+    y = expectation_maximization(y, mix_stft.to(torch.float64), iterations, eps=eps)[0]
 
     # scale estimates up again
     y = y * max_abs
-    return y
+    return y.to(torch.float32)
 
 
 def _covariance(y_j):

@@ -1,5 +1,25 @@
 ## Choosing best NSGT
 
+# 2021-07-01
+
+seed 1, 42:
+
+```
+$ python scripts/slicq_explore.py --max-sllen=264600 --bins=10,2000 --n-iter=60 --random-seed=42 --per-target
+best scores
+bass:   8.127697350005228       ('bark', 569, 56.799999999999834, 6.9, 39556)
+drums:  8.53666595713493        ('mel', 397, 43.39999999999988, 47.300000000000004, 27468)
+other:  8.402055252314938       ('bark', 569, 56.799999999999834, 6.9, 39556)
+vocals:         10.653934376348287      ('bark', 569, 56.799999999999834, 6.9, 39556)
+```
+
+vs.
+
+```
+Control score tot, bass, drums, vocals, other:
+        8.56    7.37    8.42    10.37   8.08
+```
+
 # single target
 
 ```

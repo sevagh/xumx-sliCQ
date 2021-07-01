@@ -17,14 +17,11 @@ eps = 1.e-10
 class OpenUnmixTimeBucket(nn.Module):
     def __init__(
         self,
-        time_bucket,
         slicq_sample_input,
         unidirectional=False,
         info=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
-        
-        self.time_bucket = time_bucket
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
@@ -145,11 +142,10 @@ class OpenUnmix(nn.Module):
     ):
         super(OpenUnmix, self).__init__()
 
-        self.bucketed_unmixes = nn.ModuleDict()
+        self.bucketed_unmixes = nn.ModuleList()
 
-        for time_bucket, C_block in jagged_slicq_sample_input.items():
-            bucket_name = str(time_bucket)
-            self.bucketed_unmixes[bucket_name] = OpenUnmixTimeBucket(bucket_name, C_block)
+        for i, C_block in enumerate(jagged_slicq_sample_input):
+            self.bucketed_unmixes.append(OpenUnmixTimeBucket(C_block))
 
         self.info = info
         if self.info:
@@ -162,9 +158,9 @@ class OpenUnmix(nn.Module):
             p.requires_grad = False
         self.eval()
 
-    def forward(self, x: dict[Tensor]) -> Tensor:
-        futures = {time_bucket: torch.jit.fork(self.bucketed_unmixes[str(time_bucket)], Xmag_block) for time_bucket, Xmag_block in x.items()}
-        y = {time_bucket: torch.jit.wait(future) for time_bucket, future in futures.items()}
+    def forward(self, x) -> Tensor:
+        futures = [torch.jit.fork(self.bucketed_unmixes[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+        y = [torch.jit.wait(future) for future in futures]
         return y
 
 
@@ -197,10 +193,22 @@ class Separator(nn.Module):
         target_models_nsgt: dict,
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
-        seq_dur: float = 6.0,
         device: str = "cpu",
+        niter: int = 1,
+        softmask: bool = False,
+        residual: bool = False,
+        wiener_win_len: Optional[int] = 300,
     ):
         super(Separator, self).__init__()
+
+        # saving parameters
+        self.niter = niter
+        self.residual = residual
+        self.softmask = softmask
+        self.wiener_win_len = wiener_win_len
+
+        self.n_fft = 4096
+        self.n_hop = 1024
 
         self.nsgts = defaultdict(dict)
         self.device = device
@@ -221,7 +229,6 @@ class Separator(nn.Module):
         self.target_models = nn.ModuleDict(target_models)
         # adding till https://github.com/pytorch/pytorch/issues/38963
         self.nb_targets = len(self.target_models)
-        self.seq_dur = seq_dur
         # get the sample_rate as the sample_rate of the first model
         # (tacitly assume it's the same for all targets)
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
@@ -244,12 +251,10 @@ class Separator(nn.Module):
             Tensor: stacked tensor of separated waveforms
                 shape `(nb_samples, nb_targets, nb_channels, nb_timesteps)`
         """
-
         nb_sources = self.nb_targets
         nb_samples = audio.shape[0]
-        N = audio.shape[-1]
 
-        estimates = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
+        estimates_1 = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
 
         for j, (target_name, target_module) in enumerate(self.target_models.items()):
             nsgt = self.nsgts[target_name]['nsgt']
@@ -265,10 +270,77 @@ class Separator(nn.Module):
                 Ycomplex[time_bucket] = phasemix_sep(X_block, Ymag[time_bucket])
 
             y = insgt(Ycomplex, audio.shape[-1])
-            estimates[..., j] = y
+            estimates_1[..., j] = y
 
-        # getting to (nb_samples, nb_targets, nb_channels, nb_samples)
-        estimates = estimates.permute(0, 3, 1, 2).contiguous()
+        # wiener part
+        print('STFT WIENER')
+        audio = torch.squeeze(audio, dim=0)
+
+        mix_stft = torch.view_as_real(torch.stft(audio, self.n_fft, hop_length=self.n_hop, return_complex=True))
+        X = torch.abs(torch.view_as_complex(mix_stft))
+
+        # initializing spectrograms variable
+        spectrograms = torch.zeros(X.shape + (nb_sources,), dtype=audio.dtype, device=X.device)
+
+        for j, target_name in enumerate(self.target_models.keys()):
+            # apply current model to get the source spectrogram
+            target_est = torch.squeeze(estimates_1[..., j], dim=0)
+            spectrograms[..., j] = torch.abs(torch.stft(target_est, self.n_fft, hop_length=self.n_hop, return_complex=True))
+
+        # transposing it as
+        # (nb_samples, nb_frames, nb_bins,{1,nb_channels}, nb_sources)
+
+        spectrograms = spectrograms.permute(2, 1, 0, 3)
+
+        # rearranging it into:
+        # (nb_samples, nb_frames, nb_bins, nb_channels, 2) to feed
+        # into filtering methods
+        mix_stft = mix_stft.permute(2, 1, 0, 3)
+
+        # create an additional target if we need to build a residual
+        if self.residual:
+            # we add an additional target
+            nb_sources += 1
+
+        if nb_sources == 1 and self.niter > 0:
+            raise Exception(
+                "Cannot use EM if only one target is estimated."
+                "Provide two targets or create an additional "
+                "one with `--residual`"
+            )
+
+        nb_frames = spectrograms.shape[0]
+        targets_stft = torch.zeros(
+            mix_stft.shape + (nb_sources,), dtype=audio.dtype, device=mix_stft.device
+        )
+
+        pos = 0
+        if self.wiener_win_len:
+            wiener_win_len = self.wiener_win_len
+        else:
+            wiener_win_len = nb_frames
+        while pos < nb_frames:
+            cur_frame = torch.arange(pos, min(nb_frames, pos + wiener_win_len))
+            pos = int(cur_frame[-1]) + 1
+
+            targets_stft[cur_frame] = wiener(
+                spectrograms[cur_frame],
+                mix_stft[cur_frame],
+                self.niter,
+                softmask=self.softmask,
+                residual=self.residual,
+            )
+
+        # getting to (nb_samples, nb_targets, channel, fft_size, n_frames, 2)
+        targets_stft = torch.view_as_complex(targets_stft.permute(4, 2, 1, 0, 3).contiguous())
+
+        # inverse STFT
+        estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
+
+        for j, target_name in enumerate(self.target_models.keys()):
+            estimates[..., j] = torch.istft(targets_stft[j, ...], self.n_fft, hop_length=self.n_hop, length=audio.shape[-1])
+
+        estimates = torch.unsqueeze(estimates, dim=0).permute(0, 3, 1, 2).contiguous()
         return estimates
 
     def to_dict(self, estimates: Tensor, aggregate_dict: Optional[dict] = None) -> dict:

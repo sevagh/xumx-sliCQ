@@ -9,7 +9,6 @@ import museval
 import torch
 import tqdm
 import random
-import nsgt
 
 from openunmix import utils
 

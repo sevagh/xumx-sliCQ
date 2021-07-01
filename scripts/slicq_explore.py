@@ -1,5 +1,6 @@
 import sys
 import os
+import gc
 import musdb
 import itertools
 import torch
@@ -8,7 +9,7 @@ from functools import partial
 import numpy as np
 import random
 import argparse
-from openunmix.nsgt import NSGT_sliced, MelScale, LogScale, BarkScale, VQLogScale
+from openunmix.transforms import make_filterbanks, NSGTBase, phasemix_sep, ComplexNorm
 from tqdm import tqdm
 
 import scipy
@@ -20,167 +21,35 @@ from types import SimpleNamespace
 eps = 1.e-10
 
 
-'''
-from https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021
-    nb_sources, nb_samples, nb_channels = 4, 100000, 2
-    references = np.random.rand(nb_sources, nb_samples, nb_channels)
-    estimates = np.random.rand(nb_sources, nb_samples, nb_channels)
-'''
-def fast_sdr(track, estimates_dct, target, device):
-    references = torch.cat([torch.unsqueeze(torch.tensor(source.audio, device=device), dim=0) for name, source in track.sources.items() if name == target])
+def _fast_sdr(track, estimates_dct, target, device):
+    references = torch.cat([torch.unsqueeze(torch.tensor(source.audio.T, device=device), dim=0) for source_name, source in track.sources.items() if source_name == target])
     estimates = torch.cat([torch.unsqueeze(est, dim=0) for est_name, est in estimates_dct.items() if est_name == target])
 
     # compute SDR for one song
     num = torch.sum(torch.square(references), dim=(1, 2)) + eps
     den = torch.sum(torch.square(references - estimates), dim=(1, 2)) + eps
-    sdr_instr = 10.0 * torch.log10(num / den)
-    sdr_song = torch.mean(sdr_instr)
-    return sdr_song
+    sdr_target = 10.0 * torch.log10(num / den)
+    return sdr_target
 
 
-def atan2(y, x):
-    r"""Element-wise arctangent function of y/x.
-    Returns a new tensor with signed angles in radians.
-    It is an alternative implementation of torch.atan2
-
-    Args:
-        y (Tensor): First input tensor
-        x (Tensor): Second input tensor [shape=y.shape]
-
-    Returns:
-        Tensor: [shape=y.shape].
-    """
-    pi = 2 * torch.asin(torch.tensor(1.0))
-    x += ((x == 0) & (y == 0)) * 1.0
-    out = torch.atan(y / x)
-    out += ((y >= 0) & (x < 0)) * pi
-    out -= ((y < 0) & (x < 0)) * pi
-    out *= 1 - ((y > 0) & (x == 0)) * 1.0
-    out += ((y > 0) & (x == 0)) * (pi / 2)
-    out *= 1 - ((y < 0) & (x == 0)) * 1.0
-    out += ((y < 0) & (x == 0)) * (-pi / 2)
-    return out
+def stft_fwd(audio):
+    return torch.stft(audio, n_fft=4096, hop_length=1024, return_complex=True).type(torch.complex64)
 
 
-def phasemix_sep(X, Ymag):
-    Xphase = atan2(X[..., 1], X[..., 0])
-    Ycomplex = torch.empty_like(X)
-
-    Ycomplex[..., 0] = Ymag * torch.cos(Xphase)
-    Ycomplex[..., 1] = Ymag * torch.sin(Xphase)
-    return Ycomplex
+def stft_bwd(X, N):
+    return torch.istft(X, n_fft=4096, hop_length=1024, length=N)
 
 
-def assemble_coefs_np(cqt, ncoefs):
-    """
-    Build a sequence of blocks out of incoming overlapping CQT slices
-    """
-    print(f'cqt.shape: {cqt.shape}')
-    cqt = iter(cqt)
-    cqt0 = next(cqt)
-    cq0 = np.asarray(cqt0).T
-    print(f'cq0: {cq0.shape}')
-    shh = cq0.shape[0]//2
-    print(f'shh: {shh}')
-    out = np.empty((ncoefs, cq0.shape[1], cq0.shape[2]), dtype=cq0.dtype)
-    print(f'out: {out.shape}')
-    
-    fr = 0
-    sh = max(0, min(shh, ncoefs-fr))
-
-    print(f'out: {out.shape}, cq0: {cq0.shape}, sh: {sh}')
-    print(f'out[fr:fr+sh]: {out[fr:fr+sh].shape}, cq0[sh:]: {cq0[sh:].shape}, sh: {sh}')
-    out[fr:fr+sh] = cq0[sh:] # store second half
-
-    # add up slices
-    for i, cqi in enumerate(cqt):
-        cqi = np.asarray(cqi).T
-        out[fr:fr+sh] += cqi[:sh]
-        cqi = cqi[sh:]
-        fr += sh
-        sh = max(0, min(shh, ncoefs-fr))
-        out[fr:fr+sh] = cqi[:sh]
-        
-    return out[:fr]
-
-
-def ideal_mixphase(track, tf, plot=False):
+def ideal_mixphase_stft(track, device):
     """
     ideal performance of magnitude from estimated source + phase of mix
     which is the default umx strategy for separation
     """
     N = track.audio.shape[0]
+    audio = torch.tensor(track.audio.T, device=device)
 
-    X = tf.forward(track.audio)
-    time_coefs = X.shape[-1]
-    #print(f'time coefs: {time_coefs}')
-
-    if plot:
-        print("Plotting t*f space")
-        import matplotlib.pyplot as plt
-
-        # magnitudes are fine here
-        X = torch.abs(X)
-        X_0 = X.detach().clone()
-
-        # mono for plotting
-        print(f'X.shape: {X.shape}')
-        X = X.mean(1, keepdim=False)
-        print(f'X.shape: {X.shape}')
-
-        mp_kern = 200
-        mp = torch.nn.MaxPool1d(mp_kern, mp_kern, return_indices=True)
-
-        X_temporal_pooled, inds = mp(X)
-        print(f'X_temporal_pooled.shape: {X_temporal_pooled.shape}')
-
-        mup = torch.nn.MaxUnpool1d(mp_kern, mp_kern)
-
-        X_recon = mup(X_temporal_pooled, inds, output_size=X.size())
-        print(f'X_recon.shape: {X_recon.shape}')
-
-        norm = lambda x: torch.sqrt(torch.sum(torch.abs(torch.square(torch.abs(x)))))
-        rec_err = norm(X_recon-X)/norm(X)
-
-        print(f'recon after maxpool: {rec_err}')
-        X_temporal_pooled = X_temporal_pooled.reshape(X_temporal_pooled.shape[0]*X_temporal_pooled.shape[-1], X_temporal_pooled.shape[-2])
-
-        X_1 = X.reshape(X.shape[0]*X.shape[-1], -1).detach().cpu().numpy()
-        X_2 = X_temporal_pooled.detach().cpu().numpy()
-        X_3 = X_recon.reshape(X_recon.shape[0]*X_recon.shape[-1], -1).detach().cpu().numpy()
-        X_4 = X_0.detach().cpu().numpy()
-
-        print(f'X_1: {X_1.shape}')
-        print(f'X_2: {X_2.shape}')
-        print(f'X_3: {X_3.shape}')
-        print(f'X_4: {X_4.shape}')
-
-        fig, axs = plt.subplots(4)
-        fig.suptitle('NSGT sliced exploration')
-
-        axs[0].plot(X_1.T)
-        axs[0].set_title('original slicq')
-
-        axs[1].plot(X_2.T)
-        axs[1].set_title('max pooled temporally')
-
-        axs[2].plot(X_3.T)
-        axs[2].set_title('reconstructed from maxpool')
-
-        coefs = assemble_coefs_np(X_4, int(N*tf.nsgt.coef_factor))
-        print(f'coefs.shape: {coefs.shape}')
-        # downmix coefs to mono
-        coefs = coefs.mean(-1, keepdims=False)
-        print(f'downmixed coefs.shape: {coefs.shape}')
-
-        axs[3].plot(coefs.T)
-        axs[3].set_title('assemble_coefs')
-
-        [ax.grid() for ax in axs]
-
-        plt.show()
-
-    #(I, F, T) = X.shape
+    # unsqueeze to add (1,) batch dimension
+    X = stft_fwd(audio)
 
     # Compute sources spectrograms
     P = {}
@@ -191,9 +60,9 @@ def ideal_mixphase(track, tf, plot=False):
     for name, source in track.sources.items():
         # compute spectrogram of target source:
         # magnitude of STFT
-        src_coef = tf.forward(source.audio)
-
-        P[name] = torch.abs(src_coef)
+        src_coef = torch.view_as_real(stft_fwd(torch.tensor(source.audio.T, device=device)))
+ 
+        P[name] = torch.abs(torch.view_as_complex(src_coef))
 
         # store the original, not magnitude, in the mix
         model += src_coef
@@ -203,72 +72,70 @@ def ideal_mixphase(track, tf, plot=False):
     for name, source in track.sources.items():
         source_mag = P[name]
 
-        #print('inverting phase')
-        Yj = torch.view_as_complex(phasemix_sep(torch.view_as_real(model), source_mag))
+        Yj = phasemix_sep(model, source_mag)
 
         # invert to time domain
-        target_estimate = tf.backward(Yj, N)
+        target_estimate = stft_bwd(torch.view_as_complex(Yj), N)
 
         # set this as the source estimate
         estimates[name] = target_estimate
 
-    return estimates, time_coefs
+    return estimates
 
 
-class TFTransform:
-    def __init__(self, fs, fscale="bark", fmin=78.0, fbins=125, fgamma=25.0, sllen=None, device="cuda"):
-        self.fbins = fbins
-        self.nsgt = None
-        self.device = device
+def ideal_mixphase(track, fwd, bwd, cnorm, device):
+    """
+    ideal performance of magnitude from estimated source + phase of mix
+    which is the default umx strategy for separation
+    """
+    N = track.audio.shape[0]
+    audio = torch.tensor(track.audio.T, device=device)
 
-        scl = None
-        if fscale == 'mel':
-            scl = MelScale(fmin, fs/2, fbins)
-        elif fscale == 'bark':
-            scl = BarkScale(fmin, fs/2, fbins)
-        elif fscale == 'cqlog':
-            scl = LogScale(fmin, fs/2, fbins)
-        elif fscale == 'vqlog':
-            scl = VQLogScale(fmin, fs/2, fbins, gamma=fgamma)
-        else:
-            raise ValueError(f"unsupported scale {fscale}")
+    # unsqueeze to add (1,) batch dimension
+    X = fwd(torch.unsqueeze(audio, dim=0))
 
-        if sllen is None:
-            # use slice length required to support desired frequency scale/q factors
-            sllen = scl.suggested_sllen(fs)
+    # Compute sources spectrograms
+    P = {}
+    # compute model as the sum of spectrograms
+    model = [eps]*len(X)
 
-        self.sllen = sllen
-        trlen = sllen//4
-        trlen = trlen + -trlen % 2 # make trlen divisible by 2
-        self.trlen = trlen
+    # parallelize this
+    for name, source in track.sources.items():
+        # compute spectrogram of target source:
+        # magnitude of STFT
+        src_coef = fwd(torch.unsqueeze(torch.tensor(source.audio.T, device=device), dim=0))
 
-        self.nsgt = NSGT_sliced(scl, sllen, trlen, fs, real=True, matrixform=True, multichannel=True, device=self.device)
-        self.name = f'n{fscale}-{fbins}-{fmin:.2f}-{sllen}'
+        P[name] = cnorm(src_coef)
 
-    def forward(self, audio):
-        audio = torch.tensor(audio.T, device=self.device)
-        audio = torch.unsqueeze(audio, 0)
-        C = self.nsgt.forward(audio)
-        return C
+        # store the original, not magnitude, in the mix
+        for i, src_coef_block in enumerate(src_coef):
+            model[i] += src_coef_block + eps
 
-    def backward(self, X, len_x):
-        c = self.nsgt.backward(X, len_x).T
-        c = torch.squeeze(c, 0)
-        return c
+    # now performs separation
+    estimates = {}
+    for name, source in track.sources.items():
+        source_mag = P[name]
 
-    def printinfo(self):
-        print('nsgt params:\n\t{0}\n\t{1} f bins, {2} m bins\n\t{3} total dim'.format(self.name, self.fbins, self.nsgt.ncoefs, self.fbins*self.nsgt.ncoefs))
+        Yj = [None]*len(model)
+        for i, model_block in enumerate(model):
+            Yj[i] = phasemix_sep(model_block, source_mag[i])
+
+        # invert to time domain
+        target_estimate = bwd(Yj, N)
+
+        # set this as the source estimate
+        estimates[name] = torch.squeeze(target_estimate, dim=0)
+
+    return estimates
 
 
 class TrackEvaluator:
-    def __init__(self, tracks, seq_dur_min, seq_dur_max, max_sllen, device="cuda"):
+    def __init__(self, tracks, max_sllen, device="cuda"):
         self.tracks = tracks
-        self.seq_dur_min = seq_dur_min
-        self.seq_dur_max = seq_dur_max
         self.max_sllen = max_sllen
         self.device = device
 
-    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None, reps=1, printinfo=False, divide_by_dim=False, plot=False):
+    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None):
         bins = int(bins)
 
         med_sdrs_bass = []
@@ -276,40 +143,36 @@ class TrackEvaluator:
         med_sdrs_vocals = []
         med_sdrs_other = []
 
-        tf = TFTransform(44100, scale, fmin, bins, gamma, sllen=sllen, device=self.device)
-
-        if printinfo:
-            tf.printinfo()
+        n = NSGTBase(scale, bins, fmin, sllen=None, device=self.device, gamma=gamma)
 
         # skip too big transforms
-        if tf.sllen > self.max_sllen:
+        if n.sllen > self.max_sllen:
             return (
                 float('-inf'),
                 float('-inf'),
                 float('-inf'),
                 float('-inf'),
-                tf.sllen
+                n.sllen
             )
 
-        for _ in range(reps):
-            # repeat for reps x duration
-            for track in self.tracks:
-                seq_dur = np.random.uniform(self.seq_dur_min, self.seq_dur_max)
-                track.chunk_duration = seq_dur
-                track.chunk_start = random.uniform(0, track.duration - seq_dur)
+        nsgt, insgt = make_filterbanks(n)
 
-                #print(f'track:\n\t{track.name}\n\t{track.chunk_duration}\n\t{track.chunk_start}')
+        cnorm = ComplexNorm().to(self.device)
 
-                N = track.audio.shape[0]
-                ests, dim = ideal_mixphase(track, tf, plot=plot)
+        for track in tqdm(self.tracks):
+            #print(f'track:\n\t{track.name}\n\t{track.chunk_duration}\n\t{track.chunk_start}')
 
-                if not divide_by_dim:
-                    dim = 1.0
+            N = track.audio.shape[0]
+            ests = ideal_mixphase(track, nsgt.forward, insgt.forward, cnorm.forward, device=self.device)
 
-                med_sdrs_bass.append(fast_sdr(track, ests, target='bass', device=self.device)/dim)
-                med_sdrs_drums.append(fast_sdr(track, ests, target='drums', device=self.device)/dim)
-                med_sdrs_vocals.append(fast_sdr(track, ests, target='vocals', device=self.device)/dim)
-                med_sdrs_other.append(fast_sdr(track, ests, target='other', device=self.device)/dim)
+            med_sdrs_bass.append(_fast_sdr(track, ests, target='bass', device=self.device))
+            med_sdrs_drums.append(_fast_sdr(track, ests, target='drums', device=self.device))
+            med_sdrs_vocals.append(_fast_sdr(track, ests, target='vocals', device=self.device))
+            med_sdrs_other.append(_fast_sdr(track, ests, target='other', device=self.device))
+
+            del ests
+            torch.cuda.empty_cache()
+            gc.collect()
 
         # return 1 sdr per source
         return (
@@ -317,14 +180,14 @@ class TrackEvaluator:
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_drums])),
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_vocals])),
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_other])),
-            tf.sllen
+            n.sllen
         )
 
 
-def evaluate_single(f, params, seq_reps):
+def evaluate_single(f, params):
     #print(f'{scale} {bins} {fmin} {fmax} {gamma}')
 
-    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'], reps=seq_reps, printinfo=True, plot=True)
+    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'] )
 
     print('bass, drums, vocals, other sdr! {0:.2f} {1:.2f} {2:.2f} {3:.2f}'.format(
         curr_score_bass,
@@ -335,7 +198,7 @@ def evaluate_single(f, params, seq_reps):
     print('total sdr: {0:.2f}'.format((curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4))
 
 
-def optimize_many(f, params, n_iter, seq_reps, per_target):
+def optimize_many(f, params, n_iter, per_target):
     if per_target:
         best_score_bass = float('-inf')
         best_param_bass = None
@@ -360,7 +223,7 @@ def optimize_many(f, params, n_iter, seq_reps, per_target):
                 fmin = random.choice(fmins)
                 gamma = random.choice(gammas)
                 
-                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma, reps=seq_reps)
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
 
                 params_tup = (scale, bins, fmin, gamma, sllen)
 
@@ -405,7 +268,7 @@ def optimize_many(f, params, n_iter, seq_reps, per_target):
                 fmin = random.choice(fmins)
                 gamma = random.choice(gammas)
                 
-                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma, reps=seq_reps)
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
                 tot = (curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4
 
                 params_tup = (scale, bins, fmin, gamma, sllen)
@@ -449,7 +312,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--n-iter',
         type=int,
-        default=1000,
+        default=60,
         help='number of iterations'
     )
     parser.add_argument(
@@ -465,28 +328,7 @@ if __name__ == '__main__':
         help='torch device (cpu vs cuda)'
     )
     parser.add_argument(
-        '--n-random-tracks',
-        type=int,
-        default=10,
-        help='use N random tracks'
-    )
-    parser.add_argument(
-        '--seq-dur-min',
-        type=float,
-        default=5.0,
-        help='sequence duration per track, min'
-    )
-    parser.add_argument(
-        '--seq-dur-max',
-        type=float,
-        default=10.0,
-        help='sequence duration per track, max'
-    )
-    parser.add_argument(
-        '--seq-reps',
-        type=int,
-        default=10,
-        help='sequence repetitions (adds robustness)'
+        "--cuda-device", type=int, default=-1, help="choose which gpu to train on (-1 = 'cuda' in pytorch)"
     )
     parser.add_argument(
         '--random-seed',
@@ -521,11 +363,11 @@ if __name__ == '__main__':
 
     random.seed(args.random_seed)
 
+    if args.cuda_device >= 0:
+        device = torch.device(args.cuda_device)
+
     # initiate musdb
     mus = musdb.DB(subsets='train', split='valid', is_wav=True)
-
-    print(f'using {args.n_random_tracks} random tracks from MUSDB18-HQ train set validation split')
-    tracks = random.sample(mus.tracks, args.n_random_tracks)
 
     if not args.single:
         scales = args.fscale.split(',')
@@ -542,8 +384,8 @@ if __name__ == '__main__':
             'gamma': gammas,
         }
 
-        t = TrackEvaluator(tracks, args.seq_dur_min, args.seq_dur_max, args.max_sllen, device=args.device)
-        optimize_many(t.oracle, params, args.n_iter, args.seq_reps, args.per_target)
+        t = TrackEvaluator(mus.tracks, args.max_sllen, device=args.device)
+        optimize_many(t.oracle, params, args.n_iter, args.per_target)
     else:
         params = {
             'scale': args.fscale,
@@ -555,5 +397,5 @@ if __name__ == '__main__':
 
         print(f'Parameter to evaluate:\n\t{params}')
 
-        t = TrackEvaluator(tracks, args.seq_dur_min, args.seq_dur_max, args.max_sllen, device=args.device)
-        evaluate_single(t.oracle, params, args.seq_reps)
+        t = TrackEvaluator(tracks, args.max_sllen, device=args.device)
+        evaluate_single(t.oracle, params)

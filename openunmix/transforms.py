@@ -49,10 +49,11 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
 
 
 class NSGTBase(nn.Module):
-    def __init__(self, scale, fbins, fmin, sllen, fs=44100, device="cuda", gamma=25.):
+    def __init__(self, scale, fbins, fmin, sllen=None, fs=44100, device="cuda", gamma=25.):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
         self.fmin = fmin
+        self.gamma = gamma
         self.fmax = fs/2
 
         self.scl = None
@@ -69,9 +70,9 @@ class NSGTBase(nn.Module):
         else:
             raise ValueError(f'unsupported frequency scale {scale}')
 
-        self.sllen = sllen
-
         min_sllen = self.scl.suggested_sllen(fs)
+
+        self.sllen = sllen if sllen is not None else min_sllen
 
         if self.sllen < min_sllen:
             warnings.warn(f"slice length is too short for desired frequency scale, need {min_sllen}")
@@ -134,12 +135,12 @@ class NSGT_SL(nn.Module):
 
         C = self.nsgt.nsgt.forward((x,))
 
-        for time_bucket, nsgt_f in C.items():
+        for i, nsgt_f in enumerate(C):
             nsgt_f = torch.moveaxis(nsgt_f, 0, -2)
             nsgt_f = torch.view_as_real(nsgt_f)
             # unpack batch
             nsgt_f = nsgt_f.view(shape[:-1] + nsgt_f.shape[-4:])
-            C[time_bucket] = nsgt_f
+            C[i] = nsgt_f
 
         return C
 
@@ -176,9 +177,9 @@ class INSGT_SL(nn.Module):
         self.nsgt._apply(fn)
         return self
 
-    def forward(self, X_dict: Tensor, length: int) -> Tensor:
-        X_complex = {}
-        for time_bucket, X in X_dict.items():
+    def forward(self, X_list: Tensor, length: int) -> Tensor:
+        X_complex = [None]*len(X_list)
+        for i, X in enumerate(X_list):
             Xshape = len(X.shape)
 
             X = torch.view_as_complex(X)
@@ -193,7 +194,7 @@ class INSGT_SL(nn.Module):
             # moveaxis back into into T x [packed-channels] x F1 x F2
             X = torch.moveaxis(X, -2, 0)
 
-            X_complex[time_bucket] = X
+            X_complex[i] = X
 
         y = self.nsgt.nsgt.backward(X_complex, length)
 
@@ -219,16 +220,16 @@ class ComplexNorm(nn.Module):
         self.power = power
         self.mono = mono
 
-    def forward(self, spec: dict[Tensor]) -> Tensor:
+    def forward(self, spec):
         # take the magnitude
 
-        ret = {}
-        for time_bucket, C_block in spec.items():
+        ret = [None]*len(spec)
+        for i, C_block in enumerate(spec):
             C_block = torch.pow(torch.abs(torch.view_as_complex(C_block)), self.power)
 
             # downmix in the mag domain to preserve energy
             if self.mono:
                 C_block = torch.mean(C_block, 1, keepdim=True)
-            ret[time_bucket] = C_block
+            ret[i] = C_block
 
         return ret

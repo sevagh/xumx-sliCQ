@@ -192,7 +192,6 @@ def load_separator(
             target_models_nsgt=target_models_nsgt,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
-            seq_dur=enc_conf["seq_dur"],
             device=device,
         ).to(device)
 
