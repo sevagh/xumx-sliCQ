@@ -7,11 +7,11 @@ set -x
 
 batch=32
 epochs=1000
-seqdur=1
+seqdur=6
 
 declare -a targetargs=(
-	"--target=drums --fscale=mel --fbins=104 --fmin=49.3 --sllen=7108"
-	"--target=bass --fscale=bark --fbins=105 --fmin=25.4 --sllen=7180"
+	"--target=drums --fscale=bark --fbins=223 --fmin=68.5 --sllen=15504"
+	"--target=bass --fscale=mel --fbins=798 --fmin=20.1 --sllen=56544"
 )
 
 for i in "${targetargs[@]}"

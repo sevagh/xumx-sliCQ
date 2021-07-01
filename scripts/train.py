@@ -21,9 +21,6 @@ from contextlib import contextmanager
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 from torch_lr_finder import LRFinder, TrainDataLoaderIter
-import auraloss
-import torchvision
-import torchvision.io
 from torch.utils.tensorboard import SummaryWriter
 
 from openunmix import data
@@ -33,16 +30,14 @@ from openunmix import transforms
 from openunmix import filtering
 
 tqdm.monitor_interval = 0
-torch.autograd.set_detect_anomaly(True)
-
-_PLOT_LIM = 16_000
+#torch.autograd.set_detect_anomaly(True)
 
 
-# apply it on dict entries
+# apply it on jagged list of tensors
 def custom_mse_loss(output, target):
     loss = 0
-    for time_bucket in target.keys():
-        loss += torch.mean((output[time_bucket] - target[time_bucket])**2)
+    for i in range(len(target)):
+        loss += torch.mean((output[i] - target[i])**2)
     return loss/len(target)
 
 
@@ -73,17 +68,14 @@ def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
         optimizer.step()
         losses.update(loss.item(), y.size(1))
 
-    return losses.avg, Xmag
+    return losses.avg
 
-def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion):
+def valid(args, unmix, encoder, device, valid_sampler, mse_criterion):
     # unpack encoder object
-    nsgt, insgt, cnorm = encoder
+    nsgt, _, cnorm = encoder
 
     losses = utils.AverageMeter()
-    sdrs = utils.AverageMeter()
     unmix.eval()
-
-    ret_tup = None
 
     with torch.no_grad():
         pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
@@ -103,22 +95,7 @@ def valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criter
             )
 
             losses.update(loss.item(), y.size(1))
-
-            # randomly pick a set of spectrograms + audio clip to return
-            # and to check sdr
-            # set it if ret_tup is unset, and randomly set others
-            if ret_tup is None or bool(random.getrandbits(1)):
-                Y_hats = {}
-                for time_bucket, X_block in X.items():
-                    Y_hats[time_bucket] = transforms.phasemix_sep(X_block, Ymag_hat[time_bucket])
-
-                y_hat = insgt(Y_hats, y.shape[-1])
-                sdr = sdr_criterion(y_hat, y)
-
-                sdrs.update(sdr.item(), y_hat.size(1))
-                ret_tup = (y_hat, None, None, None)
-
-        return losses.avg, sdrs.avg, ret_tup
+        return losses.avg
 
 
 def main():
@@ -342,7 +319,6 @@ def main():
     #torchinfo.summary(unmix, input_data=jagged_slicq)
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    sdr_criterion = auraloss.time.SISDRLoss()
     mse_criterion = custom_mse_loss
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -402,12 +378,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss, last_Xmag = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
-
-        # set the 3 spectrograms to blank for now until i write code to plot the non-matrixform spectrogram
-        valid_loss, valid_sdr, _ = valid(args, unmix, encoder, device, valid_sampler, mse_criterion, sdr_criterion)
-
-        #audio_sample = audio_sample[0].mean(dim=0, keepdim=True)
+        train_loss = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
+        valid_loss = valid(args, unmix, encoder, device, valid_sampler, mse_criterion)
 
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
@@ -452,36 +424,14 @@ def main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
-            #TODO support spectrogram plotting with jagged input
-            #nsgt.plot_spectrogram(20.*torch.log10(X_spec), axs[0])
-            #nsgt.plot_spectrogram(20.*torch.log10(Y_spec), axs[1])
-            #nsgt.plot_spectrogram(20.*torch.log10(Y_spec_hat), axs[2])
-
-            #io_buf = io.BytesIO()
-            #fig.savefig(io_buf, format='png', dpi=300)
-            #io_buf.seek(0)
-            #img = torch.ByteTensor(torch.ByteStorage.from_buffer(io_buf.getvalue()))
-
-            #image = torchvision.io.decode_png(img)
-            #tboard_writer.add_image(f'valid-sliCQ-{epoch}', image, global_step=epoch)
-
             tboard_writer.add_scalar('Loss (MSE)/train', train_loss, epoch)
             tboard_writer.add_scalar('Loss (MSE)/valid', valid_loss, epoch)
-            tboard_writer.add_scalar('SI-SDR/valid', valid_sdr, epoch)
-            #tboard_writer.add_audio(f"valid-sep-{epoch}", audio_sample, global_step=epoch)
 
         if stop:
             print("Apply Early Stopping")
             break
 
         gc.collect()
-
-    if tboard_writer is not None:
-        tboard_writer.add_graph(unmix, (last_Xmag))
-        for tag, param in unmix.named_parameters():
-            if 'input' in tag:
-                continue
-            tboard_writer.add_histogram(tag, param.grad.data.cpu().numpy(), epoch)
 
 
 if __name__ == "__main__":

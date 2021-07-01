@@ -5,13 +5,13 @@ outdir="umx-slicq-1-3080ti"
 
 set -x
 
-batch=64
+batch=32
 epochs=1000
-seqdur=1
+seqdur=6
 
 declare -a targetargs=(
-	#"--target=vocals --fscale=mel --fbins=116 --fmin=37.7 --sllen=8024"
-	"--target=other --fscale=bark --fbins=35 --fmin=105.2 --sllen=2392"
+	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
+	"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
 )
 
 for i in "${targetargs[@]}"

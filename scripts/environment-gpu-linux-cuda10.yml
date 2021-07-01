@@ -21,9 +21,7 @@ dependencies:
     - museval==0.3.1
     - asteroid-filterbanks==0.3.2
     - gitpython
-    - torchinfo
     - matplotlib
     - line_profiler
     - tensorboard
-    - torchvision
     - memory_profiler
