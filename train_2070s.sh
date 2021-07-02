@@ -10,7 +10,7 @@ epochs=1000
 seqdur=6
 
 declare -a targetargs=(
-	"--target=drums --fscale=bark --fbins=223 --fmin=68.5 --sllen=15504"
+	#"--target=drums --fscale=bark --fbins=223 --fmin=68.5 --sllen=15504"
 	"--target=bass --fscale=mel --fbins=798 --fmin=20.1 --sllen=56544"
 )
 
@@ -20,7 +20,7 @@ do
 		--root "${musdbdir}" --is-wav --nb-workers=4 --batch-size=$batch --epochs=$epochs --random-track-mix \
 		--seq-dur=$seqdur \
 		$i --debug \
-		--output "${outdir}" \
+		--output "${outdir}" --patience=1000 \
 		--source-augmentations gain channelswap \
 		--cuda-device=1
 done

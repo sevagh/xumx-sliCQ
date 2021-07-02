@@ -10,7 +10,7 @@ epochs=1000
 seqdur=6
 
 declare -a targetargs=(
-	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
+	#"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
 	"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
 )
 
@@ -20,6 +20,6 @@ do
 		--root "${musdbdir}" --is-wav --nb-workers=4 --batch-size=$batch --epochs=$epochs --random-track-mix \
 		--seq-dur=$seqdur \
 		$i --debug \
-		--output "${outdir}" \
+		--output "${outdir}" --patience=1000  \
 		--source-augmentations gain channelswap
 done
