@@ -10,7 +10,8 @@ epochs=1000
 seqdur=6
 
 declare -a targetargs=(
-	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --time-stride=3 --dropout=0.4"
+	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --time-stride=3"
+	#"--target=drums --fscale=bark --fbins=223 --fmin=68.5 --sllen=15504 --conv-chans=25,55 --conv-freq-filters=5,11 --conv-time-filters=7,9 --time-stride=5 --print-shapes"
 	#"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
 )
 

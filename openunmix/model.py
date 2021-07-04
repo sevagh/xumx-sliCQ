@@ -55,11 +55,21 @@ class OpenUnmixTimeBucket(nn.Module):
         channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
         layers = len(channels)-1
 
-        max_freq_filtsize = nb_f_bins//layers
-        max_time_filtsize = nb_t_bins//layers
+        # start off with the biggest possible kernel size
+        # the slicq dimension divided by the number of layers
+        freq_filter = nb_f_bins//layers
+        time_filter = nb_t_bins//layers
 
-        freq_filter = max(min(max_freq_filtsize, max_freq_filter), min_freq_filter)
-        time_filter = max(min(max_time_filtsize, max_time_filter), min_time_filter)
+        # then, cap it by the max
+        if freq_filter >= max_freq_filter:
+            freq_filter = min(freq_filter, max_freq_filter)
+        else:
+            freq_filter = max(min(freq_filter, min_freq_filter), 1)
+
+        if time_filter >= max_time_filter:
+            time_filter = min(time_filter, max_time_filter)
+        else:
+            time_filter = max(min(time_filter, min_time_filter), 1)
 
         filters = [(freq_filter, time_filter), (freq_filter, time_filter)]
         strides = [(1, time_stride), (1, time_stride)]
@@ -97,7 +107,7 @@ class OpenUnmixTimeBucket(nn.Module):
                 ReLU()
             )
 
-        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True))
+        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
         decoder.append(Sigmoid())
 
         self.cdae = Sequential(*encoder, *decoder)
@@ -112,13 +122,14 @@ class OpenUnmixTimeBucket(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         mix = x.detach().clone()
-        logging.info(f'0. mix shape: {mix.shape}')
-        logging.info(f'0. x shape: {x.shape}')
+        logging.info(f'-1. mix shape: {mix.shape}')
+        logging.info(f'-1. x shape: {x.shape}')
 
         x_shape = x.shape
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
-        #x = torch.flatten(x, start_dim=-2, end_dim=-1)
+        logging.info(f'0. PRE-OLA: {torch.flatten(x, start_dim=-2, end_dim=-1).shape}')
+
         x = overlap_add_slicq(x)
 
         logging.info(f'1. PRE-CDAE: {x.shape}')
@@ -129,18 +140,16 @@ class OpenUnmixTimeBucket(nn.Module):
             logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
 
         logging.info(f'3. POST-CDAE: {x.shape}')
-
-        logging.info(f'4. GROW: {x.shape}')
         
         # crop
         x = x[:, :, :, : nb_t_bins*nb_slices]
 
-        logging.info(f'5. CROPPED: {x.shape}')
+        logging.info(f'4. CROPPED: {x.shape}')
 
         x = x.reshape(x_shape)
 
-        logging.info(f'6. mix shape: {mix.shape}')
-        logging.info(f'6. mask shape: {x.shape}')
+        logging.info(f'5. mix shape: {mix.shape}')
+        logging.info(f'5. mask shape: {x.shape}')
 
         if self.mask:
             x = x * mix
