@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d
-from .filtering import atan2
+from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d, Dropout
+from .filtering import atan2, wiener
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
 import numpy as np
@@ -14,26 +14,55 @@ import logging
 eps = 1.e-10
 
 
+# just pass input through directly
+class DummyTimeBucket(nn.Module):
+    def __init__(
+        self,
+        slicq_sample_input,
+        info=False,
+    ):
+        super(DummyTimeBucket, self).__init__()
+
+    def freeze(self):
+        # set all parameters as not requiring gradient, more RAM-efficient
+        # at test time
+        for p in self.parameters():
+            p.requires_grad = False
+        self.eval()
+
+    def forward(self, x: Tensor) -> Tensor:
+        mix = x.detach().clone()
+        return mix
+
+
 class OpenUnmixTimeBucket(nn.Module):
     def __init__(
         self,
         slicq_sample_input,
-        unidirectional=False,
+        chans="25,55",
+        dropout=-1.,
+        min_freq_filter=1,
+        max_freq_filter=5,
+        min_time_filter=3,
+        max_time_filter=23,
+        time_stride=5,
         info=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
-        channels = [nb_channels, 25, 55]
+        channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
         layers = len(channels)-1
 
-        frequency_filter = max(nb_f_bins//layers, 1)
+        max_freq_filtsize = nb_f_bins//layers
+        max_time_filtsize = nb_t_bins//layers
 
-        filters = [(frequency_filter, 7), (frequency_filter, 7)]
-        strides = [(1, 3), (1, 3)]
-        dilations = [(1, 1), (1, 1)]
-        output_paddings = [(0, 0), (0, 0)]
+        freq_filter = max(min(max_freq_filtsize, max_freq_filter), min_freq_filter)
+        time_filter = max(min(max_time_filtsize, max_time_filter), min_time_filter)
+
+        filters = [(freq_filter, time_filter), (freq_filter, time_filter)]
+        strides = [(1, time_stride), (1, time_stride)]
 
         encoder = []
         decoder = []
@@ -45,7 +74,7 @@ class OpenUnmixTimeBucket(nn.Module):
 
         for i in range(layers):
             encoder.append(
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], dilation=dilations[i], bias=False)
+                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
             )
             encoder.append(
                 BatchNorm2d(channels[i+1]),
@@ -54,9 +83,12 @@ class OpenUnmixTimeBucket(nn.Module):
                 ReLU(),
             )
 
+        if dropout > 0.:
+            encoder.append(Dropout(dropout))
+
         for i in range(layers,0,-1):
             decoder.append(
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], dilation=dilations[i-1], output_padding=output_paddings[i-1], bias=False)
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
             )
             decoder.append(
                 BatchNorm2d(channels[i-1])
@@ -65,13 +97,10 @@ class OpenUnmixTimeBucket(nn.Module):
                 ReLU()
             )
 
+        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True))
+        decoder.append(Sigmoid())
+
         self.cdae = Sequential(*encoder, *decoder)
-
-        self.grow = Sequential(
-            ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True),
-            Sigmoid()
-        )
-
         self.mask = True
 
     def freeze(self):
@@ -102,23 +131,16 @@ class OpenUnmixTimeBucket(nn.Module):
         logging.info(f'3. POST-CDAE: {x.shape}')
 
         logging.info(f'4. GROW: {x.shape}')
-
-        for i, layer in enumerate(self.grow):
-            sh1 = x.shape
-            x = layer(x)
-            logging.info(f'\t4-{i}. {sh1} -> {x.shape}')
-
-        logging.info(f'5. POST-GROW: {x.shape}')
         
         # crop
         x = x[:, :, :, : nb_t_bins*nb_slices]
 
-        logging.info(f'6. CROPPED: {x.shape}')
+        logging.info(f'5. CROPPED: {x.shape}')
 
         x = x.reshape(x_shape)
 
-        logging.info(f'7. mix shape: {mix.shape}')
-        logging.info(f'7. mask shape: {x.shape}')
+        logging.info(f'6. mix shape: {mix.shape}')
+        logging.info(f'6. mask shape: {x.shape}')
 
         if self.mask:
             x = x * mix
@@ -137,15 +159,40 @@ class OpenUnmix(nn.Module):
     def __init__(
         self,
         jagged_slicq_sample_input,
-        unidirectional=False,
+        max_bin=None,
+        dropout=-1.,
+        chans="25,55",
+        freq_filters=(1,5),
+        time_filters=(3,23),
+        time_stride=5,
         info=False,
     ):
         super(OpenUnmix, self).__init__()
 
         self.bucketed_unmixes = nn.ModuleList()
 
+        freq_idx = 0
         for i, C_block in enumerate(jagged_slicq_sample_input):
-            self.bucketed_unmixes.append(OpenUnmixTimeBucket(C_block))
+            freq_start = freq_idx
+
+            if max_bin is not None and freq_start >= max_bin:
+                self.bucketed_unmixes.append(DummyTimeBucket(C_block))
+            else:
+                self.bucketed_unmixes.append(
+                    OpenUnmixTimeBucket(
+                        C_block,
+                        chans=chans,
+                        dropout=dropout,
+                        min_freq_filter=freq_filters[0],
+                        max_freq_filter=freq_filters[1],
+                        min_time_filter=time_filters[0],
+                        max_time_filter=time_filters[1],
+                        time_stride=time_stride,
+                    )
+                )
+
+            # advance global frequency pointer
+            freq_idx += C_block.shape[2]
 
         self.info = info
         if self.info:
@@ -265,9 +312,9 @@ class Separator(nn.Module):
 
             Ymag = target_module(Xmag)
 
-            Ycomplex = {}
-            for time_bucket, X_block in X.items():
-                Ycomplex[time_bucket] = phasemix_sep(X_block, Ymag[time_bucket])
+            Ycomplex = [None]*len(X)
+            for i, X_block in enumerate(X):
+                Ycomplex[i] = phasemix_sep(X_block, Ymag[i])
 
             y = insgt(Ycomplex, audio.shape[-1])
             estimates_1[..., j] = y

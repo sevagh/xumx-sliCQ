@@ -1,17 +1,17 @@
 #!/usr/bin/env sh
 
 musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
-outdir="umx-slicq-1-3080ti"
+outdir="umx-slicq-4-3080ti"
 
 set -x
 
-batch=32
+batch=48
 epochs=1000
 seqdur=6
 
 declare -a targetargs=(
-	#"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
-	"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
+	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --time-stride=3 --dropout=0.4"
+	#"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
 )
 
 for i in "${targetargs[@]}"

@@ -173,6 +173,12 @@ def main():
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
+        "--bandwidth",
+        type=float,
+        default=None,
+        help="network won't consider frequencies above this"
+    )
+    parser.add_argument(
         "--fscale",
         choices=('bark','mel', 'cqlog', 'vqlog', 'oct'),
         default='bark',
@@ -201,6 +207,33 @@ def main():
         type=int,
         default=2,
         help="set number of channels for model (1, 2)",
+    )
+    parser.add_argument(
+        "--conv-chans",
+        type=str,
+        default="25,55",
+        help="csv of channels per layer",
+    )
+    parser.add_argument(
+        "--conv-freq-filters",
+        type=str,
+        default="1,5",
+        help="min, max frequency filter",
+    )
+    parser.add_argument(
+        "--conv-time-filters",
+        type=str,
+        default="3,23",
+        help="min, max time filter",
+    )
+    parser.add_argument(
+        "--time-stride", type=int, default=3, help="stride per layer to reduce time dimension"
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=-1.,
+        help="dropout (default -1. = dont use dropout)",
     )
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
@@ -312,6 +345,11 @@ def main():
 
     unmix = model.OpenUnmix(
         jagged_slicq,
+        max_bin=nsgt_base.max_bins(args.bandwidth),
+        chans=args.conv_chans,
+        freq_filters=tuple([int(x) for x in args.conv_freq_filters.split(",")]),
+        time_filters=tuple([int(x) for x in args.conv_time_filters.split(",")]),
+        time_stride=args.time_stride,
         info=args.print_shapes,
     ).to(device)
 
