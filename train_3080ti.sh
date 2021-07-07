@@ -5,14 +5,14 @@ outdir="umx-slicq-4-3080ti"
 
 set -x
 
-batch=48
+batch=32
 epochs=1000
 seqdur=6
 
 declare -a targetargs=(
-	"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --time-stride=3"
-	#"--target=drums --fscale=bark --fbins=223 --fmin=68.5 --sllen=15504 --conv-chans=25,55 --conv-freq-filters=5,11 --conv-time-filters=7,9 --time-stride=5 --print-shapes"
-	#"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556"
+	#"--target=vocals --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --conv-time-stride=3"
+	#"--target=other --fscale=bark --fbins=569 --fmin=56.8 --sllen=39556 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --conv-time-stride=3 --seed=1337"
+	"--target=bass --fscale=mel --fbins=798 --fmin=20.1 --sllen=56544 --conv-chans=25,55 --conv-freq-filters=1,5 --conv-time-filters=11,23 --conv-time-stride=3 --dropout=0.2"
 )
 
 for i in "${targetargs[@]}"

@@ -138,7 +138,13 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
         jagged_slicq = cnorm(jagged_slicq)
 
         models[target] = model.OpenUnmix(
-                jagged_slicq
+            jagged_slicq,
+            chans=results["args"]["conv_chans"],
+            freq_filters=tuple([int(x) for x in results["args"]["conv_freq_filters"].split(",")]),
+            time_filters=tuple([int(x) for x in results["args"]["conv_time_filters"].split(",")]),
+            time_stride=results["args"]["conv_time_stride"],
+            info=results["args"]["print_shapes"],
+            legacy=results["args"]["legacy"],
         )
 
         models_nsgt[target] = nsgt_base

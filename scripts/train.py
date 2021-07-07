@@ -173,12 +173,6 @@ def main():
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
-        "--bandwidth",
-        type=float,
-        default=None,
-        help="network won't consider frequencies above this"
-    )
-    parser.add_argument(
         "--fscale",
         choices=('bark','mel', 'cqlog', 'vqlog', 'oct'),
         default='bark',
@@ -227,13 +221,25 @@ def main():
         help="min, max time filter",
     )
     parser.add_argument(
-        "--time-stride", type=int, default=3, help="stride per layer to reduce time dimension"
+        "--conv-time-dilations",
+        type=str,
+        default="1,1",
+        help="time dilation per layer",
+    )
+    parser.add_argument(
+        "--conv-time-stride", type=int, default=3, help="stride per layer to reduce time dimension"
     )
     parser.add_argument(
         "--dropout",
         type=float,
         default=-1.,
         help="dropout (default -1. = dont use dropout)",
+    )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        default=False,
+        help="Old style of conv params (good for bass performance)",
     )
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
@@ -345,12 +351,13 @@ def main():
 
     unmix = model.OpenUnmix(
         jagged_slicq,
-        max_bin=nsgt_base.max_bins(args.bandwidth),
         chans=args.conv_chans,
         freq_filters=tuple([int(x) for x in args.conv_freq_filters.split(",")]),
         time_filters=tuple([int(x) for x in args.conv_time_filters.split(",")]),
-        time_stride=args.time_stride,
+        time_stride=args.conv_time_stride,
+        time_dilations=tuple([int(x) for x in args.conv_time_dilations.split(",")]),
         info=args.print_shapes,
+        legacy=args.legacy,
     ).to(device)
 
     #TODO: enable this when its fixed
@@ -455,6 +462,7 @@ def main():
             "num_bad_epochs": es.num_bad_epochs,
             "commit": commit,
         }
+        print(params)
 
         with open(Path(target_path, args.target + ".json"), "w") as outfile:
             outfile.write(json.dumps(params, indent=4, sort_keys=True))

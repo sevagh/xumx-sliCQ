@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d, Dropout
+from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d
 from .filtering import atan2, wiener
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
@@ -12,27 +12,6 @@ import numpy as np
 import logging
 
 eps = 1.e-10
-
-
-# just pass input through directly
-class DummyTimeBucket(nn.Module):
-    def __init__(
-        self,
-        slicq_sample_input,
-        info=False,
-    ):
-        super(DummyTimeBucket, self).__init__()
-
-    def freeze(self):
-        # set all parameters as not requiring gradient, more RAM-efficient
-        # at test time
-        for p in self.parameters():
-            p.requires_grad = False
-        self.eval()
-
-    def forward(self, x: Tensor) -> Tensor:
-        mix = x.detach().clone()
-        return mix
 
 
 class OpenUnmixTimeBucket(nn.Module):
@@ -47,71 +26,123 @@ class OpenUnmixTimeBucket(nn.Module):
         max_time_filter=23,
         time_stride=5,
         info=False,
+        legacy=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
-        channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
-        layers = len(channels)-1
+        self.legacy = legacy
 
-        # start off with the biggest possible kernel size
-        # the slicq dimension divided by the number of layers
-        freq_filter = nb_f_bins//layers
-        time_filter = nb_t_bins//layers
+        if legacy:
+            channels = [nb_channels, 25, 55]
+            layers = len(channels)-1
 
-        # then, cap it by the max
-        if freq_filter >= max_freq_filter:
-            freq_filter = min(freq_filter, max_freq_filter)
+            frequency_filter = max(nb_f_bins//layers, 1)
+
+            filters = [(frequency_filter, 7), (frequency_filter, 7)]
+            strides = [(1, 3), (1, 3)]
+            output_paddings = [(0, 0), (0, 0)]
+
+            encoder = []
+            decoder = []
+
+            layers = len(filters)
+
+            # batchnorm instead of data preprocessing/whitening
+            encoder.append(BatchNorm2d(nb_channels))
+
+            for i in range(layers):
+                encoder.append(
+                    Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
+                )
+                encoder.append(
+                    BatchNorm2d(channels[i+1]),
+                )
+                encoder.append(
+                    ReLU(),
+                )
+
+            for i in range(layers,0,-1):
+                decoder.append(
+                    ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], output_padding=output_paddings[i-1], bias=False)
+                )
+                decoder.append(
+                    BatchNorm2d(channels[i-1])
+                )
+                decoder.append(
+                    ReLU()
+                )
+
+            self.cdae = Sequential(*encoder, *decoder)
+
+            self.grow = Sequential(
+                ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True),
+                Sigmoid()
+            )
+
+            self.mask = True
         else:
-            freq_filter = max(min(freq_filter, min_freq_filter), 1)
+            channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
+            layers = len(channels)-1
 
-        if time_filter >= max_time_filter:
-            time_filter = min(time_filter, max_time_filter)
-        else:
-            time_filter = max(min(time_filter, min_time_filter), 1)
+            # start off with the biggest possible kernel size
+            # the slicq dimension divided by the number of layers
+            freq_filter = nb_f_bins//layers
+            time_filter = nb_t_bins//layers
 
-        filters = [(freq_filter, time_filter), (freq_filter, time_filter)]
-        strides = [(1, time_stride), (1, time_stride)]
+            # then, cap it by the max
+            if freq_filter >= max_freq_filter:
+                freq_filter = min(freq_filter, max_freq_filter)
+            else:
+                freq_filter = max(min(freq_filter, min_freq_filter), 1)
 
-        encoder = []
-        decoder = []
+            if time_filter >= max_time_filter:
+                time_filter = min(time_filter, max_time_filter)
+            else:
+                time_filter = max(min(time_filter, min_time_filter), 1)
 
-        layers = len(filters)
+            filters = [(freq_filter, time_filter), (freq_filter, time_filter)]
+            strides = [(1, time_stride), (1, time_stride)]
 
-        # batchnorm instead of data preprocessing/whitening
-        encoder.append(BatchNorm2d(nb_channels))
+            encoder = []
+            decoder = []
 
-        for i in range(layers):
-            encoder.append(
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
-            )
-            encoder.append(
-                BatchNorm2d(channels[i+1]),
-            )
-            encoder.append(
-                ReLU(),
-            )
+            layers = len(filters)
 
-        if dropout > 0.:
-            encoder.append(Dropout(dropout))
+            # batchnorm instead of data preprocessing/whitening
+            encoder.append(BatchNorm2d(nb_channels))
 
-        for i in range(layers,0,-1):
-            decoder.append(
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
-            )
-            decoder.append(
-                BatchNorm2d(channels[i-1])
-            )
-            decoder.append(
-                ReLU()
-            )
+            for i in range(layers):
+                encoder.append(
+                    Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
+                )
+                encoder.append(
+                    BatchNorm2d(channels[i+1]),
+                )
+                encoder.append(
+                    ReLU(),
+                )
 
-        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
-        decoder.append(Sigmoid())
+            if dropout > 0.:
+                encoder.append(Dropout(dropout))
 
-        self.cdae = Sequential(*encoder, *decoder)
-        self.mask = True
+            for i in range(layers,0,-1):
+                decoder.append(
+                    ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
+                )
+                decoder.append(
+                    BatchNorm2d(channels[i-1])
+                )
+                decoder.append(
+                    ReLU()
+                )
+
+            decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
+            decoder.append(Sigmoid())
+
+            self.cdae = Sequential(*encoder, *decoder)
+            self.mask = True
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -121,40 +152,83 @@ class OpenUnmixTimeBucket(nn.Module):
         self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
-        mix = x.detach().clone()
-        logging.info(f'-1. mix shape: {mix.shape}')
-        logging.info(f'-1. x shape: {x.shape}')
+        if self.legacy:
+            mix = x.detach().clone()
+            logging.info(f'0. mix shape: {mix.shape}')
+            logging.info(f'0. x shape: {x.shape}')
 
-        x_shape = x.shape
-        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
+            x_shape = x.shape
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
-        logging.info(f'0. PRE-OLA: {torch.flatten(x, start_dim=-2, end_dim=-1).shape}')
+            #x = torch.flatten(x, start_dim=-2, end_dim=-1)
+            x = overlap_add_slicq(x)
 
-        x = overlap_add_slicq(x)
+            logging.info(f'1. PRE-CDAE: {x.shape}')
 
-        logging.info(f'1. PRE-CDAE: {x.shape}')
+            for i, layer in enumerate(self.cdae):
+                sh1 = x.shape
+                x = layer(x)
+                logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
 
-        for i, layer in enumerate(self.cdae):
-            sh1 = x.shape
-            x = layer(x)
-            logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
+            logging.info(f'3. POST-CDAE: {x.shape}')
 
-        logging.info(f'3. POST-CDAE: {x.shape}')
-        
-        # crop
-        x = x[:, :, :, : nb_t_bins*nb_slices]
+            logging.info(f'4. GROW: {x.shape}')
 
-        logging.info(f'4. CROPPED: {x.shape}')
+            for i, layer in enumerate(self.grow):
+                sh1 = x.shape
+                x = layer(x)
+                logging.info(f'\t4-{i}. {sh1} -> {x.shape}')
 
-        x = x.reshape(x_shape)
+            logging.info(f'5. POST-GROW: {x.shape}')
+            
+            # crop
+            x = x[:, :, :, : nb_t_bins*nb_slices]
 
-        logging.info(f'5. mix shape: {mix.shape}')
-        logging.info(f'5. mask shape: {x.shape}')
+            logging.info(f'6. CROPPED: {x.shape}')
 
-        if self.mask:
-            x = x * mix
+            x = x.reshape(x_shape)
 
-        return x
+            logging.info(f'7. mix shape: {mix.shape}')
+            logging.info(f'7. mask shape: {x.shape}')
+
+            if self.mask:
+                x = x * mix
+
+            return x
+        else:
+            mix = x.detach().clone()
+            logging.info(f'0. mix shape: {mix.shape}')
+            logging.info(f'0. x shape: {x.shape}')
+
+            x_shape = x.shape
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
+
+            #x = torch.flatten(x, start_dim=-2, end_dim=-1)
+            x = overlap_add_slicq(x)
+
+            logging.info(f'1. PRE-CDAE: {x.shape}')
+
+            for i, layer in enumerate(self.cdae):
+                sh1 = x.shape
+                x = layer(x)
+                logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
+
+            logging.info(f'3. POST-CDAE: {x.shape}')
+            
+            # crop
+            x = x[:, :, :, : nb_t_bins*nb_slices]
+
+            logging.info(f'6. CROPPED: {x.shape}')
+
+            x = x.reshape(x_shape)
+
+            logging.info(f'7. mix shape: {mix.shape}')
+            logging.info(f'7. mask shape: {x.shape}')
+
+            if self.mask:
+                x = x * mix
+
+            return x
 
 
 class OpenUnmix(nn.Module):
@@ -164,44 +238,36 @@ class OpenUnmix(nn.Module):
         nb_bins, M (int): Number of sliCQ-NSGT tf bins
         nb_channels (int): Number of input audio channels (Default: `2`).
     """
-
     def __init__(
         self,
         jagged_slicq_sample_input,
-        max_bin=None,
+        bin_pass=1,
         dropout=-1.,
         chans="25,55",
         freq_filters=(1,5),
         time_filters=(3,23),
         time_stride=5,
         info=False,
+        legacy=False,
     ):
         super(OpenUnmix, self).__init__()
 
         self.bucketed_unmixes = nn.ModuleList()
 
-        freq_idx = 0
         for i, C_block in enumerate(jagged_slicq_sample_input):
-            freq_start = freq_idx
-
-            if max_bin is not None and freq_start >= max_bin:
-                self.bucketed_unmixes.append(DummyTimeBucket(C_block))
-            else:
-                self.bucketed_unmixes.append(
-                    OpenUnmixTimeBucket(
-                        C_block,
-                        chans=chans,
-                        dropout=dropout,
-                        min_freq_filter=freq_filters[0],
-                        max_freq_filter=freq_filters[1],
-                        min_time_filter=time_filters[0],
-                        max_time_filter=time_filters[1],
-                        time_stride=time_stride,
-                    )
+            self.bucketed_unmixes.append(
+                OpenUnmixTimeBucket(
+                    C_block,
+                    chans=chans,
+                    dropout=dropout,
+                    min_freq_filter=freq_filters[0],
+                    max_freq_filter=freq_filters[1],
+                    min_time_filter=time_filters[0],
+                    max_time_filter=time_filters[1],
+                    time_stride=time_stride,
+                    legacy=legacy,
                 )
-
-            # advance global frequency pointer
-            freq_idx += C_block.shape[2]
+            )
 
         self.info = info
         if self.info:
