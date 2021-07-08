@@ -364,7 +364,10 @@ if __name__ == '__main__':
     random.seed(args.random_seed)
 
     if args.cuda_device >= 0:
+        print(f'setting device to {torch.cuda.get_device_name(args.cuda_device)}')
         device = torch.device(args.cuda_device)
+    else:
+        device = args.device
 
     # initiate musdb
     mus = musdb.DB(subsets='train', split='valid', is_wav=True)
@@ -384,7 +387,7 @@ if __name__ == '__main__':
             'gamma': gammas,
         }
 
-        t = TrackEvaluator(mus.tracks, args.max_sllen, device=args.device)
+        t = TrackEvaluator(mus.tracks, args.max_sllen, device=device)
         optimize_many(t.oracle, params, args.n_iter, args.per_target)
     else:
         params = {
@@ -397,5 +400,5 @@ if __name__ == '__main__':
 
         print(f'Parameter to evaluate:\n\t{params}')
 
-        t = TrackEvaluator(tracks, args.max_sllen, device=args.device)
+        t = TrackEvaluator(tracks, args.max_sllen, device=device)
         evaluate_single(t.oracle, params)
