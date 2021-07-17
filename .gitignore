@@ -99,7 +99,6 @@ Temporary Items
 .apdisk
 
 *.chkpnt
-*.json
 *.pth
 
 *.png

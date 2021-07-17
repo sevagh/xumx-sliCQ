@@ -30,11 +30,17 @@ def overlap_add_slicq(slicq):
 
 
 def phasemix_sep(X, Ymag):
-    Xphase = atan2(X[..., 1], X[..., 0])
-    Ycomplex = torch.empty_like(X)
+    Ycomplex = [None]*len(X)
 
-    Ycomplex[..., 0] = Ymag * torch.cos(Xphase)
-    Ycomplex[..., 1] = Ymag * torch.sin(Xphase)
+    for i, X_block in enumerate(X):
+        Xphase_block = atan2(X_block[..., 1], X_block[..., 0])
+        Ycomplex_block = torch.empty_like(X_block)
+
+        Ycomplex_block[..., 0] = Ymag[i] * torch.cos(Xphase_block)
+        Ycomplex_block[..., 1] = Ymag[i] * torch.sin(Xphase_block)
+
+        Ycomplex[i] = Ycomplex_block
+
     return Ycomplex
 
 

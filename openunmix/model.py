@@ -4,12 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import Parameter, ReLU, Linear, LSTM, Tanh, BatchNorm1d, BatchNorm2d, BatchNorm3d, MaxPool2d, MaxUnpool2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid, Conv3d, LSTM, Conv3d, ConvTranspose3d
+from torch.nn import Parameter, ReLU, Tanh, BatchNorm2d, ConvTranspose2d, Conv2d, Sequential, Sigmoid
 from .filtering import atan2, wiener
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
 import numpy as np
 import logging
+import copy
 
 eps = 1.e-10
 
@@ -19,130 +20,63 @@ class OpenUnmixTimeBucket(nn.Module):
         self,
         slicq_sample_input,
         chans="25,55",
-        dropout=-1.,
-        min_freq_filter=1,
-        max_freq_filter=5,
         min_time_filter=3,
         max_time_filter=23,
-        time_stride=5,
+        time_strides=(5,5),
         info=False,
-        legacy=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
-        self.legacy = legacy
+        channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
+        layers = len(channels)-1
 
-        if legacy:
-            channels = [nb_channels, 25, 55]
-            layers = len(channels)-1
+        time_filter = nb_t_bins//layers
 
-            frequency_filter = max(nb_f_bins//layers, 1)
+        if time_filter >= max_time_filter:
+            time_filter = min(time_filter, max_time_filter)
+        else:
+            time_filter = max(min(time_filter, min_time_filter), 1)
 
-            filters = [(frequency_filter, 7), (frequency_filter, 7)]
-            strides = [(1, 3), (1, 3)]
-            output_paddings = [(0, 0), (0, 0)]
+        filters = [(1, time_filter), (1, time_filter)]
+        strides = [(1, time_strides[0]), (1, time_strides[1])]
 
-            encoder = []
-            decoder = []
+        encoder = []
+        decoder = []
 
-            layers = len(filters)
+        layers = len(filters)
 
-            # batchnorm instead of data preprocessing/whitening
-            encoder.append(BatchNorm2d(nb_channels))
+        # batchnorm instead of data preprocessing/whitening
+        encoder.append(BatchNorm2d(nb_channels))
 
-            for i in range(layers):
-                encoder.append(
-                    Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
-                )
-                encoder.append(
-                    BatchNorm2d(channels[i+1]),
-                )
-                encoder.append(
-                    ReLU(),
-                )
-
-            for i in range(layers,0,-1):
-                decoder.append(
-                    ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], output_padding=output_paddings[i-1], bias=False)
-                )
-                decoder.append(
-                    BatchNorm2d(channels[i-1])
-                )
-                decoder.append(
-                    ReLU()
-                )
-
-            self.cdae = Sequential(*encoder, *decoder)
-
-            self.grow = Sequential(
-                ConvTranspose2d(nb_channels, nb_channels, (1, nb_t_bins), stride=(1, 2), bias=True),
-                Sigmoid()
+        for i in range(layers):
+            encoder.append(
+                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
+            )
+            encoder.append(
+                BatchNorm2d(channels[i+1]),
+            )
+            encoder.append(
+                ReLU(),
             )
 
-            self.mask = True
-        else:
-            channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
-            layers = len(channels)-1
+        for i in range(layers,0,-1):
+            decoder.append(
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
+            )
+            decoder.append(
+                BatchNorm2d(channels[i-1])
+            )
+            decoder.append(
+                ReLU()
+            )
 
-            # start off with the biggest possible kernel size
-            # the slicq dimension divided by the number of layers
-            freq_filter = nb_f_bins//layers
-            time_filter = nb_t_bins//layers
+        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
+        decoder.append(Sigmoid())
 
-            # then, cap it by the max
-            if freq_filter >= max_freq_filter:
-                freq_filter = min(freq_filter, max_freq_filter)
-            else:
-                freq_filter = max(min(freq_filter, min_freq_filter), 1)
-
-            if time_filter >= max_time_filter:
-                time_filter = min(time_filter, max_time_filter)
-            else:
-                time_filter = max(min(time_filter, min_time_filter), 1)
-
-            filters = [(freq_filter, time_filter), (freq_filter, time_filter)]
-            strides = [(1, time_stride), (1, time_stride)]
-
-            encoder = []
-            decoder = []
-
-            layers = len(filters)
-
-            # batchnorm instead of data preprocessing/whitening
-            encoder.append(BatchNorm2d(nb_channels))
-
-            for i in range(layers):
-                encoder.append(
-                    Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
-                )
-                encoder.append(
-                    BatchNorm2d(channels[i+1]),
-                )
-                encoder.append(
-                    ReLU(),
-                )
-
-            if dropout > 0.:
-                encoder.append(Dropout(dropout))
-
-            for i in range(layers,0,-1):
-                decoder.append(
-                    ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
-                )
-                decoder.append(
-                    BatchNorm2d(channels[i-1])
-                )
-                decoder.append(
-                    ReLU()
-                )
-
-            decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
-            decoder.append(Sigmoid())
-
-            self.cdae = Sequential(*encoder, *decoder)
-            self.mask = True
+        self.cdae = Sequential(*encoder, *decoder)
+        self.mask = True
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -152,83 +86,39 @@ class OpenUnmixTimeBucket(nn.Module):
         self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
-        if self.legacy:
-            mix = x.detach().clone()
-            logging.info(f'0. mix shape: {mix.shape}')
-            logging.info(f'0. x shape: {x.shape}')
+        mix = x.detach().clone()
+        logging.info(f'0. mix shape: {mix.shape}')
+        logging.info(f'0. x shape: {x.shape}')
 
-            x_shape = x.shape
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
+        x_shape = x.shape
+        nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
-            #x = torch.flatten(x, start_dim=-2, end_dim=-1)
-            x = overlap_add_slicq(x)
+        #x = torch.flatten(x, start_dim=-2, end_dim=-1)
+        x = overlap_add_slicq(x)
 
-            logging.info(f'1. PRE-CDAE: {x.shape}')
+        logging.info(f'1. PRE-CDAE: {x.shape}')
 
-            for i, layer in enumerate(self.cdae):
-                sh1 = x.shape
-                x = layer(x)
-                logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
+        for i, layer in enumerate(self.cdae):
+            sh1 = x.shape
+            x = layer(x)
+            logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
 
-            logging.info(f'3. POST-CDAE: {x.shape}')
+        logging.info(f'3. POST-CDAE: {x.shape}')
+        
+        # crop
+        x = x[:, :, :, : nb_t_bins*nb_slices]
 
-            logging.info(f'4. GROW: {x.shape}')
+        logging.info(f'6. CROPPED: {x.shape}')
 
-            for i, layer in enumerate(self.grow):
-                sh1 = x.shape
-                x = layer(x)
-                logging.info(f'\t4-{i}. {sh1} -> {x.shape}')
+        x = x.reshape(x_shape)
 
-            logging.info(f'5. POST-GROW: {x.shape}')
-            
-            # crop
-            x = x[:, :, :, : nb_t_bins*nb_slices]
+        logging.info(f'7. mix shape: {mix.shape}')
+        logging.info(f'7. mask shape: {x.shape}')
 
-            logging.info(f'6. CROPPED: {x.shape}')
+        if self.mask:
+            x = x * mix
 
-            x = x.reshape(x_shape)
-
-            logging.info(f'7. mix shape: {mix.shape}')
-            logging.info(f'7. mask shape: {x.shape}')
-
-            if self.mask:
-                x = x * mix
-
-            return x
-        else:
-            mix = x.detach().clone()
-            logging.info(f'0. mix shape: {mix.shape}')
-            logging.info(f'0. x shape: {x.shape}')
-
-            x_shape = x.shape
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
-
-            #x = torch.flatten(x, start_dim=-2, end_dim=-1)
-            x = overlap_add_slicq(x)
-
-            logging.info(f'1. PRE-CDAE: {x.shape}')
-
-            for i, layer in enumerate(self.cdae):
-                sh1 = x.shape
-                x = layer(x)
-                logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
-
-            logging.info(f'3. POST-CDAE: {x.shape}')
-            
-            # crop
-            x = x[:, :, :, : nb_t_bins*nb_slices]
-
-            logging.info(f'6. CROPPED: {x.shape}')
-
-            x = x.reshape(x_shape)
-
-            logging.info(f'7. mix shape: {mix.shape}')
-            logging.info(f'7. mask shape: {x.shape}')
-
-            if self.mask:
-                x = x * mix
-
-            return x
+        return x
 
 
 class OpenUnmix(nn.Module):
@@ -242,32 +132,30 @@ class OpenUnmix(nn.Module):
         self,
         jagged_slicq_sample_input,
         bin_pass=1,
-        dropout=-1.,
         chans="25,55",
-        freq_filters=(1,5),
         time_filters=(3,23),
-        time_stride=5,
+        time_strides=(5,5),
         info=False,
-        legacy=False,
     ):
         super(OpenUnmix, self).__init__()
 
-        self.bucketed_unmixes = nn.ModuleList()
+        bucketed_unmixes = nn.ModuleList()
 
         for i, C_block in enumerate(jagged_slicq_sample_input):
-            self.bucketed_unmixes.append(
+            bucketed_unmixes.append(
                 OpenUnmixTimeBucket(
                     C_block,
                     chans=chans,
-                    dropout=dropout,
-                    min_freq_filter=freq_filters[0],
-                    max_freq_filter=freq_filters[1],
                     min_time_filter=time_filters[0],
                     max_time_filter=time_filters[1],
-                    time_stride=time_stride,
-                    legacy=legacy,
+                    time_strides=time_strides,
                 )
             )
+
+        self.bucketed_unmixes_vocals = bucketed_unmixes
+        self.bucketed_unmixes_bass = copy.deepcopy(bucketed_unmixes)
+        self.bucketed_unmixes_drums = copy.deepcopy(bucketed_unmixes)
+        self.bucketed_unmixes_other = copy.deepcopy(bucketed_unmixes)
 
         self.info = info
         if self.info:
@@ -281,9 +169,19 @@ class OpenUnmix(nn.Module):
         self.eval()
 
     def forward(self, x) -> Tensor:
-        futures = [torch.jit.fork(self.bucketed_unmixes[i], Xmag_block) for i, Xmag_block in enumerate(x)]
-        y = [torch.jit.wait(future) for future in futures]
-        return y
+        futures_vocals = [torch.jit.fork(self.bucketed_unmixes_vocals[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+        y_vocals = [torch.jit.wait(future) for future in futures_vocals]
+
+        futures_bass = [torch.jit.fork(self.bucketed_unmixes_bass[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+        y_bass = [torch.jit.wait(future) for future in futures_bass]
+
+        futures_drums = [torch.jit.fork(self.bucketed_unmixes_drums[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+        y_drums = [torch.jit.wait(future) for future in futures_drums]
+
+        futures_other = [torch.jit.fork(self.bucketed_unmixes_other[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+        y_other = [torch.jit.wait(future) for future in futures_other]
+
+        return y_bass, y_vocals, y_other, y_drums
 
 
 class Separator(nn.Module):

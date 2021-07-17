@@ -339,7 +339,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--max-sllen',
         type=int,
-        default=32760,
+        default=32768,
         help='maximum sllen above which to skip iterations'
     )
     parser.add_argument(

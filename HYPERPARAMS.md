@@ -1,5 +1,14 @@
 ## Choosing best NSGT
 
+# 2021-07-17
+
+revisit:
+
+```
+(umx-gpu) sevagh:umx-sliCQ $ python scripts/slicq_explore.py --max-sllen=44100 --bins=10,300 --n-iter=60 --random-seed=42 --cuda-device=0
+total:  8.84532519401798        ('bark', 262, 32.89999999999992, 95.10000000000001, 18060)
+```
+
 # 2021-07-01
 
 seed 2, 115:

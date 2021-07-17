@@ -25,3 +25,4 @@ dependencies:
     - line_profiler
     - tensorboard
     - memory_profiler
+    - torchinfo

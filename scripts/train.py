@@ -20,7 +20,6 @@ import torchinfo
 from contextlib import contextmanager
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
-from torch_lr_finder import LRFinder, TrainDataLoaderIter
 from torch.utils.tensorboard import SummaryWriter
 
 from openunmix import data
@@ -28,49 +27,46 @@ from openunmix import model
 from openunmix import utils
 from openunmix import transforms
 from openunmix import filtering
+from openunmix.loss import LossCriterion
 
 tqdm.monitor_interval = 0
-#torch.autograd.set_detect_anomaly(True)
 
 
-# apply it on jagged list of tensors
-def custom_mse_loss(output, target):
-    loss = 0
-    for i in range(len(target)):
-        loss += torch.mean((output[i] - target[i])**2)
-    return loss/len(target)
-
-
-def train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer):
+def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
     # unpack encoder object
-    nsgt, _, cnorm = encoder
+    nsgt, insgt, cnorm = encoder
 
     losses = utils.AverageMeter()
     unmix.train()
     pbar = tqdm.tqdm(train_sampler, disable=args.quiet)
 
-    for x, y in pbar:
+    for x, y_bass, y_vocals, y_other, y_drums in pbar:
         pbar.set_description("Training batch")
-        x, y = x.to(device), y.to(device)
+        x, y_bass, y_vocals, y_other, y_drums = x.to(device), y_bass.to(device), y_vocals.to(device), y_other.to(device), y_drums.to(device)
         optimizer.zero_grad()
         X = nsgt(x)
         Xmag = cnorm(X)
-        Ymag = cnorm(nsgt(y))
+        Ymag_bass = cnorm(nsgt(y_bass))
+        Ymag_vocals = cnorm(nsgt(y_vocals))
+        Ymag_drums = cnorm(nsgt(y_drums))
+        Ymag_other = cnorm(nsgt(y_other))
 
-        Ymag_hat = unmix(Xmag)
-
-        loss = mse_criterion(
-            Ymag_hat,
-            Ymag,
+        loss = criterion(
+            *unmix(Xmag), # forward call to unmix returns bass, vocals, other, drums
+            *(Ymag_bass, Ymag_vocals, Ymag_other, Ymag_drums),
+            *(y_bass, y_vocals, y_other, y_drums),
+            X,
+            x.shape[-1]
         )
 
         loss.backward()
         optimizer.step()
-        losses.update(loss.item(), y.size(1))
+        losses.update(loss.item(), x.size(1))
 
     return losses.avg
 
-def valid(args, unmix, encoder, device, valid_sampler, mse_criterion):
+
+def valid(args, unmix, encoder, device, valid_sampler, criterion):
     # unpack encoder object
     nsgt, _, cnorm = encoder
 
@@ -79,35 +75,32 @@ def valid(args, unmix, encoder, device, valid_sampler, mse_criterion):
 
     with torch.no_grad():
         pbar = tqdm.tqdm(valid_sampler, disable=args.quiet)
-        for x, y in pbar:
+        for x, y_bass, y_vocals, y_other, y_drums in pbar:
             pbar.set_description("Validation batch")
-            x, y = x.to(device), y.to(device)
+            x, y_bass, y_vocals, y_other, y_drums = x.to(device), y_bass.to(device), y_vocals.to(device), y_other.to(device), y_drums.to(device)
 
             X = nsgt(x)
             Xmag = cnorm(X)
-            Ymag = cnorm(nsgt(y))
 
-            Ymag_hat = unmix(Xmag)
+            Ymag_bass = cnorm(nsgt(y_bass))
+            Ymag_vocals = cnorm(nsgt(y_vocals))
+            Ymag_drums = cnorm(nsgt(y_drums))
+            Ymag_other = cnorm(nsgt(y_other))
 
-            loss = mse_criterion(
-                Ymag_hat,
-                Ymag,
+            loss = criterion(
+                *unmix(Xmag), # forward call to unmix returns bass, vocals, other, drums
+                *(Ymag_bass, Ymag_vocals, Ymag_other, Ymag_drums),
+                *(y_bass, y_vocals, y_other, y_drums),
+                X,
+                x.shape[-1]
             )
 
-            losses.update(loss.item(), y.size(1))
+            losses.update(loss.item(), x.size(1))
         return losses.avg
 
 
 def main():
     parser = argparse.ArgumentParser(description="Open Unmix Trainer")
-
-    # which target do we want to train?
-    parser.add_argument(
-        "--target",
-        type=str,
-        default="vocals",
-        help="target source (will be passed to the dataset)",
-    )
 
     # Dataset paramaters
     parser.add_argument(
@@ -164,6 +157,8 @@ def main():
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
+    parser.add_argument('--mcoef', type=float, default=10.0,
+                        help='coefficient for mixing: mfoef*SDR-Loss + sliCQ-MSE-Loss')
 
     # Model Parameters
     parser.add_argument(
@@ -209,46 +204,16 @@ def main():
         help="csv of channels per layer",
     )
     parser.add_argument(
-        "--conv-freq-filters",
-        type=str,
-        default="1,5",
-        help="min, max frequency filter",
-    )
-    parser.add_argument(
         "--conv-time-filters",
         type=str,
         default="3,23",
         help="min, max time filter",
     )
     parser.add_argument(
-        "--conv-time-dilations",
-        type=str,
-        default="1,1",
-        help="time dilation per layer",
-    )
-    parser.add_argument(
-        "--conv-time-stride", type=int, default=3, help="stride per layer to reduce time dimension"
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        default=-1.,
-        help="dropout (default -1. = dont use dropout)",
-    )
-    parser.add_argument(
-        "--legacy",
-        action="store_true",
-        default=False,
-        help="Old style of conv params (good for bass performance)",
+        "--conv-time-strides", type=str, default="3,3", help="time strides to reduce time dimension"
     )
     parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        default=False,
-        help="Speed up training init for dev purposes",
     )
 
     # Misc Parameters
@@ -259,10 +224,10 @@ def main():
         help="less verbose during training",
     )
     parser.add_argument(
-        "--print-shapes",
+        "--verbose",
         action="store_true",
         default=False,
-        help="Print shapes of data passing through network",
+        help="more verbose during training (print tensor shapes passing through network)",
     )
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
@@ -304,7 +269,7 @@ def main():
     target_path = Path(args.output)
     target_path.mkdir(parents=True, exist_ok=True)
 
-    tboard_path = target_path / f"logdir-{args.target}"
+    tboard_path = target_path / f"logdir"
     tboard_writer = SummaryWriter(tboard_path)
 
     train_sampler = torch.utils.data.DataLoader(
@@ -352,19 +317,16 @@ def main():
     unmix = model.OpenUnmix(
         jagged_slicq,
         chans=args.conv_chans,
-        freq_filters=tuple([int(x) for x in args.conv_freq_filters.split(",")]),
         time_filters=tuple([int(x) for x in args.conv_time_filters.split(",")]),
-        time_stride=args.conv_time_stride,
-        time_dilations=tuple([int(x) for x in args.conv_time_dilations.split(",")]),
-        info=args.print_shapes,
-        legacy=args.legacy,
+        time_strides=tuple([int(x) for x in args.conv_time_strides.split(",")]),
+        info=args.verbose,
     ).to(device)
 
-    #TODO: enable this when its fixed
-    #torchinfo.summary(unmix, input_data=jagged_slicq)
+    torchinfo.summary(unmix, input_data=(jagged_slicq,))
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    mse_criterion = custom_mse_loss
+
+    criterion = LossCriterion(encoder, args.mcoef)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -378,10 +340,10 @@ def main():
     # if a model is specified: resume training
     if args.model:
         model_path = Path(args.model).expanduser()
-        with open(Path(model_path, args.target + ".json"), "r") as stream:
+        with open(Path(model_path, "xumx_slicq.json"), "r") as stream:
             results = json.load(stream)
 
-        target_model_path = Path(model_path, args.target + ".chkpnt")
+        target_model_path = Path(model_path, "xumx_slicq.chkpnt")
         checkpoint = torch.load(target_model_path, map_location=device)
         unmix.load_state_dict(checkpoint["state_dict"], strict=False)
         optimizer.load_state_dict(checkpoint["optimizer"])
@@ -423,8 +385,8 @@ def main():
     for epoch in t:
         t.set_description("Training Epoch")
         end = time.time()
-        train_loss = train(args, unmix, encoder, device, train_sampler, mse_criterion, optimizer)
-        valid_loss = valid(args, unmix, encoder, device, valid_sampler, mse_criterion)
+        train_loss = train(args, unmix, encoder, device, train_sampler, criterion, optimizer)
+        valid_loss = valid(args, unmix, encoder, device, valid_sampler, criterion)
 
         scheduler.step(valid_loss)
         train_losses.append(train_loss)
@@ -447,7 +409,6 @@ def main():
             },
             is_best=valid_loss == es.best,
             path=target_path,
-            target=args.target,
         )
 
         # save params
@@ -462,9 +423,8 @@ def main():
             "num_bad_epochs": es.num_bad_epochs,
             "commit": commit,
         }
-        print(params)
 
-        with open(Path(target_path, args.target + ".json"), "w") as outfile:
+        with open(Path(target_path, "xumx_slicq.json"), "w") as outfile:
             outfile.write(json.dumps(params, indent=4, sort_keys=True))
 
         train_times.append(time.time() - end)

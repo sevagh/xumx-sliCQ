@@ -15,20 +15,19 @@ from openunmix import model
 from openunmix import transforms
 
 
-def save_checkpoint(state: dict, is_best: bool, path: str, target: str):
+def save_checkpoint(state: dict, is_best: bool, path: str):
     """Save checkpoint
 
     Args:
         state (dict): torch model state dict
         is_best (bool): if current model is about to be saved as best model
         path (str): model path
-        target (str): target name
     """
     # save full checkpoint including optimizer
-    torch.save(state, os.path.join(path, target + ".chkpnt"))
+    torch.save(state, os.path.join(path, "xumx_slicq.chkpnt"))
     if is_best:
         # save just the weights
-        torch.save(state["state_dict"], os.path.join(path, target + ".pth"))
+        torch.save(state["state_dict"], os.path.join(path, "xumx_slicq.pth"))
 
 
 class AverageMeter(object):
