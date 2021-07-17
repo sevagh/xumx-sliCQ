@@ -158,7 +158,7 @@ def main():
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
     parser.add_argument('--mcoef', type=float, default=10.0,
-                        help='coefficient for mixing: mfoef*SDR-Loss + sliCQ-MSE-Loss')
+                        help='coefficient for mixing: mcoef*SDR_Loss + MSE_Loss')
 
     # Model Parameters
     parser.add_argument(
@@ -231,6 +231,9 @@ def main():
     )
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
+    )
+    parser.add_argument(
+        "--sdr-loss", action="store_true", default=False, help="enable SDR loss"
     )
     parser.add_argument(
         "--cuda-device", type=int, default=-1, help="choose which gpu to train on (-1 = 'cuda' in pytorch)"
@@ -326,7 +329,7 @@ def main():
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    criterion = LossCriterion(encoder, args.mcoef)
+    criterion = LossCriterion(encoder, args.mcoef, enable_sdr=args.sdr_loss)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -430,8 +433,8 @@ def main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
-            tboard_writer.add_scalar('Loss (MSE)/train', train_loss, epoch)
-            tboard_writer.add_scalar('Loss (MSE)/valid', valid_loss, epoch)
+            tboard_writer.add_scalar('Loss/train', train_loss, epoch)
+            tboard_writer.add_scalar('Loss/valid', valid_loss, epoch)
 
         if stop:
             print("Apply Early Stopping")

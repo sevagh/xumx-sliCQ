@@ -5,7 +5,7 @@ outdir="xumx-slicq-train"
 
 set -x
 
-batch=48
+batch=64
 epochs=1000
 seqdur=1
 

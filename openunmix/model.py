@@ -170,15 +170,13 @@ class OpenUnmix(nn.Module):
 
     def forward(self, x) -> Tensor:
         futures_vocals = [torch.jit.fork(self.bucketed_unmixes_vocals[i], Xmag_block) for i, Xmag_block in enumerate(x)]
-        y_vocals = [torch.jit.wait(future) for future in futures_vocals]
-
         futures_bass = [torch.jit.fork(self.bucketed_unmixes_bass[i], Xmag_block) for i, Xmag_block in enumerate(x)]
-        y_bass = [torch.jit.wait(future) for future in futures_bass]
-
         futures_drums = [torch.jit.fork(self.bucketed_unmixes_drums[i], Xmag_block) for i, Xmag_block in enumerate(x)]
-        y_drums = [torch.jit.wait(future) for future in futures_drums]
-
         futures_other = [torch.jit.fork(self.bucketed_unmixes_other[i], Xmag_block) for i, Xmag_block in enumerate(x)]
+
+        y_vocals = [torch.jit.wait(future) for future in futures_vocals]
+        y_bass = [torch.jit.wait(future) for future in futures_bass]
+        y_drums = [torch.jit.wait(future) for future in futures_drums]
         y_other = [torch.jit.wait(future) for future in futures_other]
 
         return y_bass, y_vocals, y_other, y_drums
