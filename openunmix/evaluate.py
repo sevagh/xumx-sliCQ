@@ -15,7 +15,6 @@ from openunmix import utils
 
 def separate_and_evaluate(
     track: musdb.MultiTrack,
-    targets: list,
     model_str_or_path: str,
     niter: int,
     output_dir: str,
@@ -29,7 +28,6 @@ def separate_and_evaluate(
     print('loading separator')
     separator = utils.load_separator(
         model_str_or_path=model_str_or_path,
-        targets=targets,
         niter=niter,
         residual=residual,
         wiener_win_len=wiener_win_len,
@@ -181,7 +179,6 @@ if __name__ == "__main__":
             print('track: {0}'.format(track.name))
             scores = separate_and_evaluate(
                 track,
-                targets=args.targets,
                 model_str_or_path=args.model,
                 niter=args.niter,
                 residual=args.residual,

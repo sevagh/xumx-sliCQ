@@ -18,8 +18,8 @@ import sys
 import torchaudio
 import torchinfo
 from contextlib import contextmanager
+import sklearn.preprocessing
 from torch.autograd import Variable
-import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
 from openunmix import data
@@ -34,7 +34,7 @@ tqdm.monitor_interval = 0
 
 def train(args, unmix, encoder, device, train_sampler, criterion, optimizer):
     # unpack encoder object
-    nsgt, insgt, cnorm = encoder
+    nsgt, _, cnorm = encoder
 
     losses = utils.AverageMeter()
     unmix.train()
@@ -97,6 +97,41 @@ def valid(args, unmix, encoder, device, valid_sampler, criterion):
 
             losses.update(loss.item(), x.size(1))
         return losses.avg
+
+
+def get_statistics(args, encoder, dataset, time_blocks):
+    nsgt, _, cnorm = encoder
+
+    nsgt = copy.deepcopy(nsgt).to("cpu")
+    cnorm = copy.deepcopy(cnorm).to("cpu")
+
+    # slicq is a list of tensors so we need a list of scalers
+    scalers = [sklearn.preprocessing.StandardScaler() for i in range(time_blocks)]
+
+    dataset_scaler = copy.deepcopy(dataset)
+    dataset_scaler.random_chunks = False
+    dataset_scaler.seq_duration = None
+
+    dataset_scaler.samples_per_track = 1
+    dataset_scaler.augmentations = None
+    dataset_scaler.random_track_mix = False
+    dataset_scaler.random_interferer_mix = False
+
+    pbar = tqdm.tqdm(range(len(dataset_scaler)), disable=args.quiet)
+    for ind in pbar:
+        x = dataset_scaler[ind][0]
+
+        pbar.set_description("Compute dataset statistics")
+        # downmix to mono channel
+        X = cnorm(nsgt(x[None, ...]))
+
+        for i, X_block in enumerate(X):
+            X_block_ola = np.squeeze(transforms.overlap_add_slicq(X_block).mean(1, keepdim=False).permute(0, 2, 1), axis=0)
+            scalers[i].partial_fit(X_block_ola)
+
+    # set inital input scaler values
+    std = [np.maximum(scaler.scale_, 1e-4 * np.max(scaler.scale_)) for scaler in scalers]
+    return [scaler.mean_ for scaler in scalers], std
 
 
 def main():
@@ -162,6 +197,12 @@ def main():
 
     # Model Parameters
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="skip dataset statistics calculation and plot conv weights in tensorboard",
+    )
+    parser.add_argument(
         "--seq-dur",
         type=float,
         default=6.0,
@@ -198,21 +239,6 @@ def main():
         help="set number of channels for model (1, 2)",
     )
     parser.add_argument(
-        "--conv-chans",
-        type=str,
-        default="25,55",
-        help="csv of channels per layer",
-    )
-    parser.add_argument(
-        "--conv-time-filters",
-        type=str,
-        default="3,23",
-        help="min, max time filter",
-    )
-    parser.add_argument(
-        "--conv-time-strides", type=str, default="3,3", help="time strides to reduce time dimension"
-    )
-    parser.add_argument(
         "--nb-workers", type=int, default=0, help="Number of workers for dataloader."
     )
 
@@ -233,7 +259,7 @@ def main():
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
     )
     parser.add_argument(
-        "--sdr-loss", action="store_true", default=False, help="enable SDR loss"
+        "--enable-sdr-loss", action="store_true", default=False, help="enable SDR loss"
     )
     parser.add_argument(
         "--cuda-device", type=int, default=-1, help="choose which gpu to train on (-1 = 'cuda' in pytorch)"
@@ -316,20 +342,28 @@ def main():
     jagged_slicq = nsgt_base.predict_input_size(args.batch_size, args.nb_channels, args.seq_dur)
 
     jagged_slicq = cnorm(jagged_slicq)
+    n_blocks = len(jagged_slicq)
+
+    # data whitening
+    if args.model or args.debug:
+        scaler_mean = None
+        scaler_std = None
+    else:
+        scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset, n_blocks)
 
     unmix = model.OpenUnmix(
         jagged_slicq,
-        chans=args.conv_chans,
-        time_filters=tuple([int(x) for x in args.conv_time_filters.split(",")]),
-        time_strides=tuple([int(x) for x in args.conv_time_strides.split(",")]),
+        input_means=scaler_mean,
+        input_scales=scaler_std,
         info=args.verbose,
     ).to(device)
 
-    torchinfo.summary(unmix, input_data=(jagged_slicq,))
+    if not args.quiet:
+        torchinfo.summary(unmix, input_data=(jagged_slicq,))
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    criterion = LossCriterion(encoder, args.mcoef, enable_sdr=args.sdr_loss)
+    criterion = LossCriterion(encoder, args.mcoef, enable_sdr=args.enable_sdr_loss)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -370,8 +404,6 @@ def main():
         valid_losses = []
         train_times = []
         best_epoch = 0
-
-    fig, axs = plt.subplots(3)
 
     print('Starting Tensorboard')
     tboard_proc = subprocess.Popen(["tensorboard", "--logdir", tboard_path])

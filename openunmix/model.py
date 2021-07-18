@@ -19,36 +19,31 @@ class OpenUnmixTimeBucket(nn.Module):
     def __init__(
         self,
         slicq_sample_input,
-        chans="25,55",
-        min_time_filter=3,
-        max_time_filter=23,
-        time_strides=(5,5),
+        input_mean=None,
+        input_scale=None,
         info=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
-        channels = [nb_channels] + [int(chan) for chan in chans.split(",")]
+        channels = [nb_channels, 12, 24]
         layers = len(channels)-1
 
-        time_filter = nb_t_bins//layers
-
-        if time_filter >= max_time_filter:
-            time_filter = min(time_filter, max_time_filter)
+        if nb_f_bins >= 10:
+            # if there are at least 10 frequencies in the block, filter over 3 frequencies at a time
+            filters = [(3, 3), (3, 3)]
         else:
-            time_filter = max(min(time_filter, min_time_filter), 1)
+            # else consider single frequencies independently with a freq filter size of 1
+            filters = [(1, 3), (1, 3)]
 
-        filters = [(1, time_filter), (1, time_filter)]
-        strides = [(1, time_strides[0]), (1, time_strides[1])]
+        # dimensionality reduction
+        strides = [(1, 3), (1, 3)]
 
         encoder = []
         decoder = []
 
         layers = len(filters)
-
-        # batchnorm instead of data preprocessing/whitening
-        encoder.append(BatchNorm2d(nb_channels))
 
         for i in range(layers):
             encoder.append(
@@ -72,11 +67,25 @@ class OpenUnmixTimeBucket(nn.Module):
                 ReLU()
             )
 
+        # grow the overlap-added half dimension to its full size
         decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
         decoder.append(Sigmoid())
 
         self.cdae = Sequential(*encoder, *decoder)
         self.mask = True
+
+        if input_mean is not None:
+            input_mean = torch.from_numpy(-input_mean).float()
+        else:
+            input_mean = torch.zeros(nb_f_bins)
+
+        if input_scale is not None:
+            input_scale = torch.from_numpy(1.0 / input_scale).float()
+        else:
+            input_scale = torch.ones(nb_f_bins)
+
+        self.input_mean = Parameter(input_mean)
+        self.input_scale = Parameter(input_scale)
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -93,28 +102,36 @@ class OpenUnmixTimeBucket(nn.Module):
         x_shape = x.shape
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
-        #x = torch.flatten(x, start_dim=-2, end_dim=-1)
         x = overlap_add_slicq(x)
 
         logging.info(f'1. PRE-CDAE: {x.shape}')
 
+        # shift and scale input to mean=0 std=1 (across all bins)
+        x = x.permute(0, 1, 3, 2)
+        x += self.input_mean
+        x *= self.input_scale
+        x = x.permute(0, 1, 3, 2)
+
+        logging.info(f'2. POST INPUT SCALING: {x.shape}')
+
         for i, layer in enumerate(self.cdae):
             sh1 = x.shape
             x = layer(x)
-            logging.info(f'\t2-{i}. {sh1} -> {x.shape}')
+            logging.info(f'\t3-{i}. {sh1} -> {x.shape}')
 
-        logging.info(f'3. POST-CDAE: {x.shape}')
+        logging.info(f'4. POST-CDAE: {x.shape}')
         
         # crop
         x = x[:, :, :, : nb_t_bins*nb_slices]
 
-        logging.info(f'6. CROPPED: {x.shape}')
+        logging.info(f'5. CROPPED: {x.shape}')
 
         x = x.reshape(x_shape)
 
-        logging.info(f'7. mix shape: {mix.shape}')
-        logging.info(f'7. mask shape: {x.shape}')
+        logging.info(f'6. mix shape: {mix.shape}')
+        logging.info(f'6. mask shape: {x.shape}')
 
+        # multiplicative skip connection
         if self.mask:
             x = x * mix
 
@@ -131,10 +148,8 @@ class OpenUnmix(nn.Module):
     def __init__(
         self,
         jagged_slicq_sample_input,
-        bin_pass=1,
-        chans="25,55",
-        time_filters=(3,23),
-        time_strides=(5,5),
+        input_means=None,
+        input_scales=None,
         info=False,
     ):
         super(OpenUnmix, self).__init__()
@@ -142,13 +157,15 @@ class OpenUnmix(nn.Module):
         bucketed_unmixes = nn.ModuleList()
 
         for i, C_block in enumerate(jagged_slicq_sample_input):
+            input_mean = input_means[i] if input_means else None
+            input_scale = input_scales[i] if input_scales else None
+
             bucketed_unmixes.append(
                 OpenUnmixTimeBucket(
                     C_block,
-                    chans=chans,
-                    min_time_filter=time_filters[0],
-                    max_time_filter=time_filters[1],
-                    time_strides=time_strides,
+                    input_mean=input_mean,
+                    input_scale=input_scale,
+                    info=info,
                 )
             )
 
@@ -207,8 +224,8 @@ class Separator(nn.Module):
 
     def __init__(
         self,
-        target_models: dict,
-        target_models_nsgt: dict,
+        xumx_model,
+        xumx_nsgt,
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
         device: str = "cpu",
@@ -228,27 +245,16 @@ class Separator(nn.Module):
         self.n_fft = 4096
         self.n_hop = 1024
 
-        self.nsgts = defaultdict(dict)
         self.device = device
 
-        # separate nsgt per model
-        for name, nsgt_base in target_models_nsgt.items():
-            nsgt, insgt = make_filterbanks(
-                nsgt_base, sample_rate=sample_rate
-            )
-
-            self.nsgts[name]['nsgt'] = nsgt
-            self.nsgts[name]['insgt'] = insgt
+        self.nsgt, self.insgt = make_filterbanks(
+            xumx_nsgt, sample_rate=sample_rate
+        )
 
         self.complexnorm = ComplexNorm(mono=nb_channels == 1)
         self.nb_channels = nb_channels
 
-        # registering the targets models
-        self.target_models = nn.ModuleDict(target_models)
-        # adding till https://github.com/pytorch/pytorch/issues/38963
-        self.nb_targets = len(self.target_models)
-        # get the sample_rate as the sample_rate of the first model
-        # (tacitly assume it's the same for all targets)
+        self.xumx_model = xumx_model
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
 
     def freeze(self):
@@ -269,26 +275,23 @@ class Separator(nn.Module):
             Tensor: stacked tensor of separated waveforms
                 shape `(nb_samples, nb_targets, nb_channels, nb_timesteps)`
         """
-        nb_sources = self.nb_targets
+        nb_sources = 4
         nb_samples = audio.shape[0]
 
-        estimates_1 = torch.zeros(audio.shape + (nb_sources,), dtype=audio.dtype, device=self.device)
+        X = self.nsgt(audio)
+        Xmag = self.complexnorm(X)
 
-        for j, (target_name, target_module) in enumerate(self.target_models.items()):
-            nsgt = self.nsgts[target_name]['nsgt']
-            insgt = self.nsgts[target_name]['insgt']
+        Ymag_bass, Ymag_vocals, Ymag_other, Ymag_drums = self.xumx_model(Xmag)
 
-            X = nsgt(audio)
-            Xmag = self.complexnorm(X)
+        Ycomplex_bass = phasemix_sep(X, Ymag_bass)
+        Ycomplex_vocals = phasemix_sep(X, Ymag_vocals)
+        Ycomplex_drums = phasemix_sep(X, Ymag_drums)
+        Ycomplex_other = phasemix_sep(X, Ymag_other)
 
-            Ymag = target_module(Xmag)
-
-            Ycomplex = [None]*len(X)
-            for i, X_block in enumerate(X):
-                Ycomplex[i] = phasemix_sep(X_block, Ymag[i])
-
-            y = insgt(Ycomplex, audio.shape[-1])
-            estimates_1[..., j] = y
+        y_bass = self.insgt(Ycomplex_bass, audio.shape[-1])
+        y_drums = self.insgt(Ycomplex_drums, audio.shape[-1])
+        y_other = self.insgt(Ycomplex_other, audio.shape[-1])
+        y_vocals = self.insgt(Ycomplex_vocals, audio.shape[-1])
 
         # wiener part
         print('STFT WIENER')
@@ -300,9 +303,16 @@ class Separator(nn.Module):
         # initializing spectrograms variable
         spectrograms = torch.zeros(X.shape + (nb_sources,), dtype=audio.dtype, device=X.device)
 
-        for j, target_name in enumerate(self.target_models.keys()):
+        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
             # apply current model to get the source spectrogram
-            target_est = torch.squeeze(estimates_1[..., j], dim=0)
+            if target_name == 'bass':
+                target_est = torch.squeeze(y_bass, dim=0)
+            elif target_name == 'vocals':
+                target_est = torch.squeeze(y_vocals, dim=0)
+            elif target_name == 'drums':
+                target_est = torch.squeeze(y_drums, dim=0)
+            elif target_name == 'other':
+                target_est = torch.squeeze(y_other, dim=0)
             spectrograms[..., j] = torch.abs(torch.stft(target_est, self.n_fft, hop_length=self.n_hop, return_complex=True))
 
         # transposing it as
@@ -355,7 +365,7 @@ class Separator(nn.Module):
         # inverse STFT
         estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
 
-        for j, target_name in enumerate(self.target_models.keys()):
+        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
             estimates[..., j] = torch.istft(targets_stft[j, ...], self.n_fft, hop_length=self.n_hop, length=audio.shape[-1])
 
         estimates = torch.unsqueeze(estimates, dim=0).permute(0, 3, 1, 2).contiguous()
@@ -373,7 +383,7 @@ class Separator(nn.Module):
             (dict of str: Tensor):
         """
         estimates_dict = {}
-        for k, target in enumerate(self.target_models):
+        for k, target in enumerate(["vocals", "drums", "bass", "other"]):
             estimates_dict[target] = estimates[:, k, ...]
 
         if aggregate_dict is not None:

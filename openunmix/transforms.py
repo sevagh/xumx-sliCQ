@@ -183,7 +183,7 @@ class INSGT_SL(nn.Module):
         self.nsgt._apply(fn)
         return self
 
-    def forward(self, X_list: Tensor, length: int) -> Tensor:
+    def forward(self, X_list: list[Tensor], length: int) -> Tensor:
         X_complex = [None]*len(X_list)
         for i, X in enumerate(X_list):
             Xshape = len(X.shape)

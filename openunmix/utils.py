@@ -92,7 +92,7 @@ class EarlyStopping(object):
             self.is_better = lambda a, best: a > best + min_delta
 
 
-def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrained=True, sample_rate=44100):
+def load_target_models(model_str_or_path="umxhq", device="cpu", pretrained=True, sample_rate=44100):
     """Core model loader
 
     target model path can be either <target>.pth, or <target>-sha256.pth
@@ -101,63 +101,48 @@ def load_target_models(targets, model_str_or_path="umxhq", device="cpu", pretrai
     The loader either loads the models from a known model string
     as registered in the __init__.py or loads from custom configs.
     """
-    if isinstance(targets, str):
-        targets = [targets]
-
     model_path = Path(model_str_or_path).expanduser()
 
-    models = {}
-    models_nsgt = {}
+    # load model from disk
+    with open(Path(model_path, "xumx_slicq.json"), "r") as stream:
+        results = json.load(stream)
 
-    for target in targets:
-        # load model from disk
-        with open(Path(model_path, target + ".json"), "r") as stream:
-            results = json.load(stream)
+    target_model_path = Path(model_path, "xumx_slicq.pth")
+    state = torch.load(target_model_path, map_location=device)
 
-        target_model_path = next(Path(model_path).glob("%s*.pth" % target))
-        state = torch.load(target_model_path, map_location=device)
+    # need to configure an NSGT object to peek at its params to set up the neural network
+    # e.g. M depends on the sllen which depends on fscale+fmin+fmax
+    nsgt_base = transforms.NSGTBase(
+        results["args"]["fscale"],
+        results["args"]["fbins"],
+        results["args"]["fmin"],
+        results["args"]["sllen"],
+        fs=sample_rate,
+        device=device
+    )
 
-        # need to configure an NSGT object to peek at its params to set up the neural network
-        # e.g. M depends on the sllen which depends on fscale+fmin+fmax
-        nsgt_base = transforms.NSGTBase(
-            results["args"]["fscale"],
-            results["args"]["fbins"],
-            results["args"]["fmin"],
-            results["args"]["sllen"],
-            fs=sample_rate,
-            device=device
-        )
+    nb_channels = results["args"]["nb_channels"]
 
-        nb_channels = results["args"]["nb_channels"]
+    seq_dur = results["args"]["seq_dur"]
 
-        seq_dur = results["args"]["seq_dur"]
+    jagged_slicq = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
+    cnorm = model.ComplexNorm().to(device)
+    jagged_slicq = cnorm(jagged_slicq)
 
-        jagged_slicq = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
-        cnorm = model.ComplexNorm().to(device)
-        jagged_slicq = cnorm(jagged_slicq)
+    xumx_model = model.OpenUnmix(
+        jagged_slicq,
+        info=results["args"]["verbose"],
+    )
 
-        models[target] = model.OpenUnmix(
-            jagged_slicq,
-            chans=results["args"]["conv_chans"],
-            freq_filters=tuple([int(x) for x in results["args"]["conv_freq_filters"].split(",")]),
-            time_filters=tuple([int(x) for x in results["args"]["conv_time_filters"].split(",")]),
-            time_stride=results["args"]["conv_time_stride"],
-            info=results["args"]["print_shapes"],
-            legacy=results["args"]["legacy"],
-        )
+    if pretrained:
+        xumx_model.load_state_dict(state, strict=False)
 
-        models_nsgt[target] = nsgt_base
-
-        if pretrained:
-            models[target].load_state_dict(state, strict=False)
-
-        models[target].to(device)
-    return models, models_nsgt
+    xumx_model.to(device)
+    return xumx_model, nsgt_base
 
 
 def load_separator(
     model_str_or_path: str = "umxhq",
-    targets: Optional[list] = None,
     niter: int = 1,
     residual: bool = False,
     wiener_win_len: Optional[int] = 300,
@@ -182,19 +167,16 @@ def load_separator(
 
     # when path exists, we assume its a custom model saved locally
     if model_path.exists():
-        if targets is None:
-            raise UserWarning("For custom models, please specify the targets")
-
         with open(Path(model_path, "separator.json"), "r") as stream:
             enc_conf = json.load(stream)
 
-        target_models, target_models_nsgt = load_target_models(
-            targets=targets, model_str_or_path=model_path, pretrained=pretrained, sample_rate=enc_conf["sample_rate"], device=device
+        xumx_model, model_nsgt = load_target_models(
+            model_str_or_path=model_path, pretrained=pretrained, sample_rate=enc_conf["sample_rate"], device=device
         )
 
         separator = model.Separator(
-            target_models=target_models,
-            target_models_nsgt=target_models_nsgt,
+            xumx_model=xumx_model,
+            xumx_nsgt=model_nsgt,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
             device=device,
