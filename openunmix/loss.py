@@ -43,46 +43,47 @@ class LossCriterion:
         sdr_loss = 0
 
         if self.enable_sdr:
-            # SDR losses with time-domain waveforms
-            pred_waveform_1 = self.insgt(
-                transforms.phasemix_sep(mix_complex, pred_magnitude_1),
-                samples
-            )
-            pred_waveform_2 = self.insgt(
-                transforms.phasemix_sep(mix_complex, pred_magnitude_2),
-                samples
-            )
-            pred_waveform_3 = self.insgt(
-                transforms.phasemix_sep(mix_complex, pred_magnitude_3),
-                samples
-            )
-            pred_waveform_4 = self.insgt(
-                transforms.phasemix_sep(mix_complex, pred_magnitude_4),
-                samples
-            )
+            with torch.no_grad():
+                # SDR losses with time-domain waveforms
+                pred_waveform_1 = self.insgt(
+                    transforms.phasemix_sep(mix_complex, pred_magnitude_1),
+                    samples
+                )
+                pred_waveform_2 = self.insgt(
+                    transforms.phasemix_sep(mix_complex, pred_magnitude_2),
+                    samples
+                )
+                pred_waveform_3 = self.insgt(
+                    transforms.phasemix_sep(mix_complex, pred_magnitude_3),
+                    samples
+                )
+                pred_waveform_4 = self.insgt(
+                    transforms.phasemix_sep(mix_complex, pred_magnitude_4),
+                    samples
+                )
 
-            # 4C1 Combination Losses
-            sdr_loss_1 = self.sdr_loss_criterion(pred_waveform_1, target_waveform_1)
-            sdr_loss_2 = self.sdr_loss_criterion(pred_waveform_2, target_waveform_2)
-            sdr_loss_3 = self.sdr_loss_criterion(pred_waveform_3, target_waveform_3)
-            sdr_loss_4 = self.sdr_loss_criterion(pred_waveform_4, target_waveform_4)
+                # 4C1 Combination Losses
+                sdr_loss_1 = self.sdr_loss_criterion(pred_waveform_1, target_waveform_1)
+                sdr_loss_2 = self.sdr_loss_criterion(pred_waveform_2, target_waveform_2)
+                sdr_loss_3 = self.sdr_loss_criterion(pred_waveform_3, target_waveform_3)
+                sdr_loss_4 = self.sdr_loss_criterion(pred_waveform_4, target_waveform_4)
 
-            # 4C2 Combination Losses
-            sdr_loss_5 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2, target_waveform_1+target_waveform_2)
-            sdr_loss_6 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_3, target_waveform_1+target_waveform_3)
-            sdr_loss_7 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_4, target_waveform_1+target_waveform_4)
-            sdr_loss_8 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_3, target_waveform_2+target_waveform_3)
-            sdr_loss_9 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_4, target_waveform_2+target_waveform_4)
-            sdr_loss_10 = self.sdr_loss_criterion(pred_waveform_3+pred_waveform_4, target_waveform_3+target_waveform_4)
+                # 4C2 Combination Losses
+                sdr_loss_5 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2, target_waveform_1+target_waveform_2)
+                sdr_loss_6 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_3, target_waveform_1+target_waveform_3)
+                sdr_loss_7 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_4, target_waveform_1+target_waveform_4)
+                sdr_loss_8 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_3, target_waveform_2+target_waveform_3)
+                sdr_loss_9 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_4, target_waveform_2+target_waveform_4)
+                sdr_loss_10 = self.sdr_loss_criterion(pred_waveform_3+pred_waveform_4, target_waveform_3+target_waveform_4)
 
-            # 4C3 Combination Losses
-            sdr_loss_11 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2+pred_waveform_3, target_waveform_1+target_waveform_2+target_waveform_3)
-            sdr_loss_12 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2+pred_waveform_4, target_waveform_1+target_waveform_2+target_waveform_4)
-            sdr_loss_13 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_3+pred_waveform_4, target_waveform_1+target_waveform_3+target_waveform_4)
-            sdr_loss_14 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_3+pred_waveform_4, target_waveform_2+target_waveform_3+target_waveform_4)
+                # 4C3 Combination Losses
+                sdr_loss_11 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2+pred_waveform_3, target_waveform_1+target_waveform_2+target_waveform_3)
+                sdr_loss_12 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_2+pred_waveform_4, target_waveform_1+target_waveform_2+target_waveform_4)
+                sdr_loss_13 = self.sdr_loss_criterion(pred_waveform_1+pred_waveform_3+pred_waveform_4, target_waveform_1+target_waveform_3+target_waveform_4)
+                sdr_loss_14 = self.sdr_loss_criterion(pred_waveform_2+pred_waveform_3+pred_waveform_4, target_waveform_2+target_waveform_3+target_waveform_4)
 
-            # All 14 Combination Losses (4C1 + 4C2 + 4C3)
-            sdr_loss = (sdr_loss_1 + sdr_loss_2 + sdr_loss_3 + sdr_loss_4 + sdr_loss_5 + sdr_loss_6 + sdr_loss_7 + sdr_loss_8 + sdr_loss_9 + sdr_loss_10 + sdr_loss_11 + sdr_loss_12 + sdr_loss_13 + sdr_loss_14)/14.0
+                # All 14 Combination Losses (4C1 + 4C2 + 4C3)
+                sdr_loss = (sdr_loss_1 + sdr_loss_2 + sdr_loss_3 + sdr_loss_4 + sdr_loss_5 + sdr_loss_6 + sdr_loss_7 + sdr_loss_8 + sdr_loss_9 + sdr_loss_10 + sdr_loss_11 + sdr_loss_12 + sdr_loss_13 + sdr_loss_14)/14.0
 
         # MSE losses with frequency-domain magnitude slicq transform
 

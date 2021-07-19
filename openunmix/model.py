@@ -27,18 +27,25 @@ class OpenUnmixTimeBucket(nn.Module):
 
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = slicq_sample_input.shape
 
-        channels = [nb_channels, 12, 24]
+        channels = [nb_channels, 25, 35, 45]
         layers = len(channels)-1
 
+        # consider single frequencies independently with a freq filter size of 1 initially
+        freq_filter = 1
         if nb_f_bins >= 10:
             # if there are at least 10 frequencies in the block, filter over 3 frequencies at a time
-            filters = [(3, 3), (3, 3)]
-        else:
-            # else consider single frequencies independently with a freq filter size of 1
-            filters = [(1, 3), (1, 3)]
+            freq_filter = 3
+
+        # consider a filter sliding over 7 time bins initially
+        time_filter = 7
+        if nb_t_bins <= 100:
+            # if there aren't enough time bins, use a smaller filter size
+            time_filter = 5
+
+        filters = [(freq_filter, time_filter)]*layers
 
         # dimensionality reduction
-        strides = [(1, 3), (1, 3)]
+        strides = [(1, 3), (1, 1), (1, 3)]
 
         encoder = []
         decoder = []

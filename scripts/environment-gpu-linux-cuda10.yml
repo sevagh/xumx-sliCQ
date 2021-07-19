@@ -27,4 +27,4 @@ dependencies:
     - tensorboard
     - memory_profiler
     - torchinfo
-    - auraloss
+    - "--editable=git+git://github.com/csteinmetz1/auraloss@main#egg=auraloss"

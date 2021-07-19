@@ -103,3 +103,5 @@ Temporary Items
 
 *.png
 *.tfevents.*localhost.localdomain.*
+
+scripts/src/
