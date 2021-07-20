@@ -192,7 +192,7 @@ def main():
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
-    parser.add_argument('--mcoef', type=float, default=10.0,
+    parser.add_argument('--mcoef', type=float, default=0.1,
                         help='coefficient for mixing: mcoef*SDR_Loss + MSE_Loss')
 
     # Model Parameters

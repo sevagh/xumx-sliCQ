@@ -110,4 +110,7 @@ class LossCriterion:
         # All 14 Combination Losses (4C1 + 4C2 + 4C3)
         mse_loss = (mse_loss_1 + mse_loss_2 + mse_loss_3 + mse_loss_4 + mse_loss_5 + mse_loss_6 + mse_loss_7 + mse_loss_8 + mse_loss_9 + mse_loss_10 + mse_loss_11 + mse_loss_12 + mse_loss_13 + mse_loss_14)/14.0
 
-        return self.mcoef*sdr_loss + mse_loss
+        final_loss = self.mcoef*sdr_loss + mse_loss
+
+        #print(f'sdr_loss: {sdr_loss}, mse_loss: {mse_loss}, sdr_mix: {self.mcoef*sdr_loss}, final_loss: {final_loss}')
+        return final_loss
