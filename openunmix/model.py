@@ -30,22 +30,19 @@ class OpenUnmixTimeBucket(nn.Module):
         channels = [nb_channels, 25, 55]
         layers = len(channels)-1
 
-        # consider single frequencies independently with a freq filter size of 1 initially
-        freq_filter = 1
-        if nb_f_bins >= 10:
-            # if there are at least 10 frequencies in the block, filter over 3 frequencies at a time
+        if nb_f_bins < 10:
+            freq_filter = 1
+        elif nb_f_bins < 20:
             freq_filter = 3
+        else:
+            freq_filter = 7
 
-        # consider a filter sliding over 7 time bins initially
-        time_filter = 23
         if nb_t_bins <= 100:
-            # if there aren't enough time bins, use a smaller filter size
             time_filter = 11
+        else:
+            time_filter = 23
 
         filters = [(freq_filter, time_filter)]*layers
-
-        # dimensionality reduction
-        strides = [(1, 3), (1, 3)]
 
         encoder = []
         decoder = []
@@ -54,7 +51,7 @@ class OpenUnmixTimeBucket(nn.Module):
 
         for i in range(layers):
             encoder.append(
-                Conv2d(channels[i], channels[i+1], filters[i], stride=strides[i], bias=False)
+                Conv2d(channels[i], channels[i+1], filters[i], bias=False)
             )
             encoder.append(
                 BatchNorm2d(channels[i+1]),
@@ -65,7 +62,7 @@ class OpenUnmixTimeBucket(nn.Module):
 
         for i in range(layers,0,-1):
             decoder.append(
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], stride=strides[i-1], bias=False)
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], bias=False)
             )
             decoder.append(
                 BatchNorm2d(channels[i-1])
@@ -75,7 +72,7 @@ class OpenUnmixTimeBucket(nn.Module):
             )
 
         # grow the overlap-added half dimension to its full size
-        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, int(1.5*nb_t_bins)), stride=(1, 2), bias=True))
+        decoder.append(ConvTranspose2d(nb_channels, nb_channels, (1, 3), stride=(1, 2), bias=True))
         decoder.append(Sigmoid())
 
         self.cdae = Sequential(*encoder, *decoder)
