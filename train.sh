@@ -5,7 +5,7 @@ outdir="xumx-slicq-train"
 
 set -x
 
-batch=24
+batch=32
 epochs=1000
 seqdur=1
 
@@ -15,5 +15,4 @@ python scripts/train.py \
 	--seq-dur=$seqdur \
 	$i --enable-sdr-loss \
 	--output "${outdir}" \
-	--model "${outdir}" \
 	--source-augmentations gain channelswap

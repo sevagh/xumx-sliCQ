@@ -9,10 +9,29 @@ from .filtering import atan2, wiener
 from .transforms import make_filterbanks, ComplexNorm, phasemix_sep, NSGTBase, overlap_add_slicq
 from collections import defaultdict
 import numpy as np
-import logging
 import copy
 
 eps = 1.e-10
+
+
+# just pass input through directly
+class DummyTimeBucket(nn.Module):
+    def __init__(
+        self,
+        slicq_sample_input,
+    ):
+        super(DummyTimeBucket, self).__init__()
+
+    def freeze(self):
+        # set all parameters as not requiring gradient, more RAM-efficient
+        # at test time
+        for p in self.parameters():
+            p.requires_grad = False
+        self.eval()
+
+    def forward(self, x: Tensor) -> Tensor:
+        mix = x.detach().clone()
+        return mix
 
 
 class OpenUnmixTimeBucket(nn.Module):
@@ -21,7 +40,6 @@ class OpenUnmixTimeBucket(nn.Module):
         slicq_sample_input,
         input_mean=None,
         input_scale=None,
-        info=False,
     ):
         super(OpenUnmixTimeBucket, self).__init__()
 
@@ -35,12 +53,12 @@ class OpenUnmixTimeBucket(nn.Module):
         elif nb_f_bins < 20:
             freq_filter = 3
         else:
-            freq_filter = 7
+            freq_filter = 5
 
         if nb_t_bins <= 100:
-            time_filter = 11
+            time_filter = 7
         else:
-            time_filter = 23
+            time_filter = 13
 
         filters = [(freq_filter, time_filter)]*layers
 
@@ -51,7 +69,7 @@ class OpenUnmixTimeBucket(nn.Module):
 
         for i in range(layers):
             encoder.append(
-                Conv2d(channels[i], channels[i+1], filters[i], bias=False)
+                Conv2d(channels[i], channels[i+1], filters[i], dilation=(1,2), bias=False)
             )
             encoder.append(
                 BatchNorm2d(channels[i+1]),
@@ -62,7 +80,7 @@ class OpenUnmixTimeBucket(nn.Module):
 
         for i in range(layers,0,-1):
             decoder.append(
-                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], bias=False)
+                ConvTranspose2d(channels[i], channels[i-1], filters[i-1], dilation=(1,2), bias=False)
             )
             decoder.append(
                 BatchNorm2d(channels[i-1])
@@ -100,15 +118,11 @@ class OpenUnmixTimeBucket(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         mix = x.detach().clone()
-        logging.info(f'0. mix shape: {mix.shape}')
-        logging.info(f'0. x shape: {x.shape}')
 
         x_shape = x.shape
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
         x = overlap_add_slicq(x)
-
-        logging.info(f'1. PRE-CDAE: {x.shape}')
 
         # shift and scale input to mean=0 std=1 (across all bins)
         x = x.permute(0, 1, 3, 2)
@@ -116,24 +130,14 @@ class OpenUnmixTimeBucket(nn.Module):
         x *= self.input_scale
         x = x.permute(0, 1, 3, 2)
 
-        logging.info(f'2. POST INPUT SCALING: {x.shape}')
-
         for i, layer in enumerate(self.cdae):
             sh1 = x.shape
             x = layer(x)
-            logging.info(f'\t3-{i}. {sh1} -> {x.shape}')
-
-        logging.info(f'4. POST-CDAE: {x.shape}')
         
         # crop
         x = x[:, :, :, : nb_t_bins*nb_slices]
 
-        logging.info(f'5. CROPPED: {x.shape}')
-
         x = x.reshape(x_shape)
-
-        logging.info(f'6. mix shape: {mix.shape}')
-        logging.info(f'6. mask shape: {x.shape}')
 
         # multiplicative skip connection
         if self.mask:
@@ -152,35 +156,41 @@ class OpenUnmix(nn.Module):
     def __init__(
         self,
         jagged_slicq_sample_input,
+        max_bin=None,
         input_means=None,
         input_scales=None,
-        info=False,
     ):
         super(OpenUnmix, self).__init__()
 
         bucketed_unmixes = nn.ModuleList()
 
+        freq_idx = 0
         for i, C_block in enumerate(jagged_slicq_sample_input):
             input_mean = input_means[i] if input_means else None
             input_scale = input_scales[i] if input_scales else None
 
-            bucketed_unmixes.append(
-                OpenUnmixTimeBucket(
-                    C_block,
-                    input_mean=input_mean,
-                    input_scale=input_scale,
-                    info=info,
+            freq_start = freq_idx
+
+            if max_bin is not None and freq_start >= max_bin:
+                bucketed_unmixes.append(
+                    DummyTimeBucket(C_block)
                 )
-            )
+            else:
+                bucketed_unmixes.append(
+                    OpenUnmixTimeBucket(
+                        C_block,
+                        input_mean=input_mean,
+                        input_scale=input_scale,
+                    )
+                )
+
+            # advance global frequency pointer
+            freq_idx += C_block.shape[2]
 
         self.bucketed_unmixes_vocals = bucketed_unmixes
         self.bucketed_unmixes_bass = copy.deepcopy(bucketed_unmixes)
         self.bucketed_unmixes_drums = copy.deepcopy(bucketed_unmixes)
         self.bucketed_unmixes_other = copy.deepcopy(bucketed_unmixes)
-
-        self.info = info
-        if self.info:
-            logging.basicConfig(level=logging.INFO)
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -285,8 +295,10 @@ class Separator(nn.Module):
         X = self.nsgt(audio)
         Xmag = self.complexnorm(X)
 
+        # xumx inference - magnitude slicq estimate
         Ymag_bass, Ymag_vocals, Ymag_other, Ymag_drums = self.xumx_model(Xmag)
 
+        # mix phase + magnitude estimate
         Ycomplex_bass = phasemix_sep(X, Ymag_bass)
         Ycomplex_vocals = phasemix_sep(X, Ymag_vocals)
         Ycomplex_drums = phasemix_sep(X, Ymag_drums)
@@ -300,10 +312,10 @@ class Separator(nn.Module):
         # wiener part
         print('STFT WIENER')
         audio = torch.squeeze(audio, dim=0)
-
+        
         mix_stft = torch.view_as_real(torch.stft(audio, self.n_fft, hop_length=self.n_hop, return_complex=True))
         X = torch.abs(torch.view_as_complex(mix_stft))
-
+        
         # initializing spectrograms variable
         spectrograms = torch.zeros(X.shape + (nb_sources,), dtype=audio.dtype, device=X.device)
 

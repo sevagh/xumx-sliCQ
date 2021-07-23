@@ -131,7 +131,7 @@ def load_target_models(model_str_or_path="umxhq", device="cpu", pretrained=True,
 
     xumx_model = model.OpenUnmix(
         jagged_slicq,
-        info=results["args"]["verbose"],
+        max_bin=nsgt_base.max_bins(results["args"]["bandwidth"]),
     )
 
     if pretrained:
@@ -179,7 +179,6 @@ def load_separator(
             xumx_nsgt=model_nsgt,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
-            device=device,
         ).to(device)
 
     return separator

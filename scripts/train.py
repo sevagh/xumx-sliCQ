@@ -200,13 +200,19 @@ def main():
         "--debug",
         action="store_true",
         default=False,
-        help="skip dataset statistics calculation and plot conv weights in tensorboard",
+        help="skip dataset statistics calculation",
     )
     parser.add_argument(
         "--seq-dur",
         type=float,
         default=6.0,
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
+    )
+    parser.add_argument(
+        "--bandwidth",
+        type=float,
+        default=16000.,
+        help="network won't consider frequencies above this"
     )
     parser.add_argument(
         "--fscale",
@@ -248,12 +254,6 @@ def main():
         action="store_true",
         default=False,
         help="less verbose during training",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="more verbose during training (print tensor shapes passing through network)",
     )
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
@@ -353,9 +353,9 @@ def main():
 
     unmix = model.OpenUnmix(
         jagged_slicq,
+        max_bin=nsgt_base.max_bins(args.bandwidth),
         input_means=scaler_mean,
         input_scales=scaler_std,
-        info=args.verbose,
     ).to(device)
 
     if not args.quiet:
