@@ -101,7 +101,6 @@ Temporary Items
 *.chkpnt
 *.pth
 
-*.png
 *.tfevents.*localhost.localdomain.*
 
 scripts/src/
