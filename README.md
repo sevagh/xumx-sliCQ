@@ -26,13 +26,56 @@ My source separation hypothesis is based on the above spectrograms - given that 
 
 ### sliCQ hyperparameter search
 
-The parameters of the sliCQ were chosen by a 60-iteration random parameter search using the "mix-phase oracle", where given a perfect (aka ground truth) magnitude sliCQ estimate, using the phase of the mix sliCQ to get the time domain target waveform resulted in the highest SDR score. 60 iterations are enough to give a statistically good combination of parameters in a large problem space according to [Bergstra and Bengio 2012](https://www.jmlr.org/papers/volume13/bergstra12a/bergstra12a.pdf).
+The parameters of the sliCQ were chosen by a 60-iteration random parameter search using the "mix-phase oracle", where the ground truth magnitude sliCQ is combined with the mix phase to get a complex sliCQ and invert it to the time domain target waveform with the highest SDR. 60 iterations are enough to give a statistically good combination of parameters in a large problem space according to [Bergstra and Bengio 2012](https://www.jmlr.org/papers/volume13/bergstra12a/bergstra12a.pdf).
 
 The parameter search is described in more detail in [docs/slicq_params.md](./docs/slicq_params.md). The configuration chosen for the xumx-sliCQ network uses the Bark scale with 262 bins, 32.9 - 22050 Hz, and slice and transition lengths of 18060 and 4514 samples (409 ms and 102 ms respectively)
 
 This resulted in a theoretical maximum SDR performance of **8.84 dB** for all 4 targets on the validation set of MUSDB18-HQ (from the initial estimates, ignoring further refinement through multi-channel iterative Wiener filtering). Compare this to the STFT (UMX defaults: window = 4096, overlap = 1024), which achieves **8.56 dB**.
 
-## Block diagrams
+## Network architecture
+
+The architecture diagram of xumx-sliCQ shows how closely it resembles Open-Unmix:
+
+![xumx_system](./.github/xumx_slicq_system.png)
+
+There is an option to perform the Wiener EM step directly on the sliCQ (`stft_wiener=False` in the Separator class), but the execution time is much slower than the STFT-based Wiener EM, for a negligible boost in SDR. In practice, 1 iteration of STFT-based Wiener EM gives a modest performance boost with an acceptable performance penalty ([further discussed here](https://discourse.aicrowd.com/t/umx-iterative-wiener-expectation-maximization-for-non-stft-time-frequency-transforms/6191)).
+
+A look into each of the 4 target networks of xumx-sliCQ shows how the convolutional network architecture is applied per-block of the ragged sliCQ transform, where each block contains the frequency bins that share the same time resolution:
+
+![xumx_pertarget](./.github/xumx_slicq_pertarget.png)
+
+Each "Conv-Net" shown above is loosely based on the 2-layer convolutional denoising autoencoder architecture that can be seen in [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266). The encoder consists of 2x `Conv2d -> BatchNorm2d -> ReLU`, and the decoder consists of 2x `ConvTranspose2d -> BatchNorm2d -> ReLU`.
+
+The same kernel is used in both layers. The time and filter kernel sizes are chosen based on the number of frequency bins and time coefficients inside each block. Dilations are used in the time axis to increase the receptive field while keeping inference time low.
+
+| Frequency bins per block | Frequency kernel size |
+|----------------|------------------|
+| nb_f < 10 | 1 |
+| 10 <= nb_f < 20 | 3 |
+| nb_f >= 20 | 5 |
+
+| Time coefficients per block | Time kernel size |
+|-----------------------------|------------------|
+| nb_t <= 100 | 7, dilation=2 |
+| nb_t > 100 | 13, dilation=2 |
+
+The total number of learnable parameters is ~6.7 million:
+```
+===============================================================================================
+Total params: 6,669,912
+Trainable params: 6,669,912
+Non-trainable params: 0
+Total mult-adds (G): 194.27
+===============================================================================================
+Input size (MB): 28.63
+Forward/backward pass size (MB): 9359.33
+Params size (MB): 26.68
+Estimated Total Size (MB): 9414.64
+```
+
+### Bandwidth
+
+In Open-Unmix, frequency bins above 16000 Hz are not learned by the network. In xumx-sliCQ, the same thing is done. If the starting frequency of a block of frequency bins is above the 16000 Hz bandwidth, the entire block passes through the network unchanged. This cuts down the total number of learnable parameters and allows xumx-sliCQ to evaluate the ISMIR 2021 Music Demixing Challenge hidden test set without timing out.
 
 ## Training and inference
 
