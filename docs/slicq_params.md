@@ -74,6 +74,15 @@ The script for the random parameter search is at scripts/slicq_explore.py.
 
 Previously I also tried to use [BayesianOptimization](https://github.com/fmfn/BayesianOptimization), but preferred the random search as it was more intuitive to me (and I wasn't sure whether the sliCQ parameters met the criteria required to be optimized using the Bayesian process).
 
+## Chosen config
+
+```
+(umx-gpu) sevagh:umx-sliCQ $ python scripts/slicq_explore.py --max-sllen=44100 --bins=10,300 --n-iter=60 --random-seed=42 --cuda-device=0
+total:  8.84532519401798        ('bark', 262, 32.89999999999992, 95.10000000000001, 18060)
+```
+
+This resulted in a theoretical maximum SDR performance of **8.84 dB** for all 4 targets on the validation set of MUSDB18-HQ (from the initial estimates, ignoring further refinement through multi-channel iterative Wiener filtering). Compare this to the STFT (UMX defaults: window = 4096, overlap = 1024), which achieves **8.56 dB**.
+
 ## Historical log of sliCQ parameter searches
 
 ### 2021-07-17
