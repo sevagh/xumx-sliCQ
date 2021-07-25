@@ -30,7 +30,7 @@ The parameters of the sliCQ were chosen by a 60-iteration random parameter searc
 
 The parameter search is described in more detail in [docs/slicq_params.md](./docs/slicq_params.md). The configuration chosen for the xumx-sliCQ network uses the Bark scale with 262 bins, 32.9 - 22050 Hz, and slice and transition lengths of 18060 and 4514 samples (409 ms and 102 ms respectively)
 
-This resulted in a theoretical maximum SDR performance of **8.84 dB** for all 4 targets on the validation set of MUSDB18-HQ (from the initial estimates, barring further multi-channel iterative Wiener filtering). Compare this to the STFT (UMX defaults: window = 4096, overlap = 1024), which achieves **8.56 dB**.
+This resulted in a theoretical maximum SDR performance of **8.84 dB** for all 4 targets on the validation set of MUSDB18-HQ (from the initial estimates, ignoring further refinement through multi-channel iterative Wiener filtering). Compare this to the STFT (UMX defaults: window = 4096, overlap = 1024), which achieves **8.56 dB**.
 
 ## Block diagrams
 
@@ -44,8 +44,8 @@ I have two previous projects where I explored similar ideas:
 * [Music-Separation-TF](https://github.com/sevagh/Music-Separation-TF), where I explored the MATLAB Wavelet Toolbox CQT (which is based on [the NSGT](https://www.mathworks.com/help/wavelet/ref/cqt.html)) and other time-frequency resolution ideas in harmonic/percussive/vocal source separation
 * [MiXiN](https://github.com/sevagh/MiXiN), an early prototype deep learning model for music source separation based on [Grais and Plumbley 2017](https://arxiv.org/abs/1703.08019)'s Convolutional Denoising Autoencoder architecture, the reference [Python NSGT](https://github.com/grrrr/nsgt) library, Keras, and Tensorflow
 
-This published version is actually not the highest scorer that I submitted to the competition, but I chose it as my final model because:
-* The code for selecting convolution layer parameters is less buggy
+This published version is actually not the highest scoring xumx/umx-sliCQ variant that I submitted to the competition, but I chose it as my final model because:
+* The code for selecting convolution layer parameters is less buggy and better understood than my previous submissions
 * The model uses a single configuration of the sliCQ transform for all 4 models (enforced by the combination loss, since we must be able to sum the magnitude sliCQ coefficients for each target)
 
-Historical snapshots of different variants and experiments of umx-sliCQ/xumx-sliCQ are all stored in my [umx-experiments](https://gitlab.com/sevagh/umx-experiments) repository.
+Historical snapshots of different variants and experiments of umx-sliCQ/xumx-sliCQ are all stored in my [umx-experiments](https://gitlab.com/sevagh/umx-experiments) repository - I tried many ideas over the course of the competition, including Conv-LSTM architectures, 3D convolutions, and more.

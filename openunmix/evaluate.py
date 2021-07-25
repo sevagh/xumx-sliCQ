@@ -175,6 +175,7 @@ if __name__ == "__main__":
 
     else:
         results = museval.EvalStore()
+        # only do 1 track
         for track in tqdm.tqdm(mus.tracks):
             print('track: {0}'.format(track.name))
             scores = separate_and_evaluate(

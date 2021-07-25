@@ -100,6 +100,7 @@ Temporary Items
 
 *.chkpnt
 *.pth
+*.pandas
 
 *.tfevents.*localhost.localdomain.*
 
