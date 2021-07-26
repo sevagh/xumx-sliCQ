@@ -1,6 +1,6 @@
 # xumx-sliCQ
 
-My variant of the excellent [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation system which, given a mixed song input, estimates 4 targets (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
+My variant of the excellent [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation system which, given a mixed song input, estimates 4 target sources (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
 * The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) vs. the STFT
 * Convolutional architecture (based loosely on [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266)) instead of the UMX linear encoder + LSTM + decoder
 * Single network like [CrossNet-Open-Unmix](https://github.com/JeffreyCA/spleeterweb-xumx) ([Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf)), aka X-UMX
@@ -9,7 +9,7 @@ My variant of the excellent [Open-Unmix](https://github.com/sigsep/open-unmix-py
 
 I trained this model for the [ISMIR 2021 Music Demixing Challenge](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021). The results showed that:
 * (:heavy_check_mark:) the sliCQ transform could successfully be used in a neural network for music source separation
-* (:heavy_multiplication_x:) ultimately it did not beat the UMX or XUMX baselines in the hidden test set (placing lower than #30 in the leaderboard)
+* (:heavy_multiplication_x:) the xumx-sliCQ model could not beat the UMX or XUMX baselines in the hidden test set (placing lower than #30 in the leaderboard)
 
 Given the flexiblity of the sliCQ transform, I still believe the idea can be explored and improved further with a better neural network architecture or different sliCQ parameters.
 
