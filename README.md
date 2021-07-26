@@ -20,7 +20,7 @@ Time-frequency masking is one strategy for music source separation, where the ma
 Transforms with nonuniform frequency spacing, leading to varying time-frequency resolution, can better represent the tonal and transient characteristics of musical signals. [Frequency-warped transforms](http://elvera.nue.tu-berlin.de/typo3/files/1015Burred2006.pdf) such as the [constant-Q transform](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1007&context=argart) have been used in music source separation systems to improve over the STFT.
 
 The sliCQ transform, which is the realtime version of the Nonstationary Gabor Transform (NSGT), is a spectral transform that allows for arbitrary nonlinear frequency scales with perfect inversion. The following visual comparison of sliCQ transform (xumx-sliCQ default) vs. STFT (UMX default) on a 10s excerpt of music ([Mestis - El Mestizo](https://www.youtube.com/watch?v=0kn2doStfp4)) demonstrates the improved visual clarity of musical events:
-![slicq_spectral](./.github/slicq_spectral.png)
+![slicq_spectral](./docs/slicq_spectral.png)
 
 My source separation hypothesis is based on the above spectrograms - given that the sliCQ transform can represent music with more clarity due to its adaptive time-frequency resolution, it is worth exploring in music source separation.
 
@@ -34,13 +34,13 @@ The parameter search is described in more detail in [docs/slicq_params.md](./doc
 
 The architecture diagram of xumx-sliCQ shows how closely it resembles Open-Unmix:
 
-![xumx_system](./.github/xumx_slicq_system.png)
+![xumx_system](./docs/xumx_slicq_system.png)
 
 There is an option to perform the Wiener EM step directly on the sliCQ (`stft_wiener=False` in the Separator class), but the execution time is much slower than the STFT-based Wiener EM, for a negligible boost in SDR. In practice, 1 iteration of STFT-based Wiener EM gives a modest performance boost with an acceptable performance penalty ([further discussed here](https://discourse.aicrowd.com/t/umx-iterative-wiener-expectation-maximization-for-non-stft-time-frequency-transforms/6191)).
 
 A look into each of the 4 target networks of xumx-sliCQ shows how the convolutional network architecture is applied per-block of the ragged sliCQ transform, where each block contains the frequency bins that share the same time resolution:
 
-![xumx_pertarget](./.github/xumx_slicq_pertarget.png)
+![xumx_pertarget](./docs/xumx_slicq_pertarget.png)
 
 For simplicity, 6 frequency bins (0-5) grouped into 2 time-frequency blocks are drawn above. The real sliCQ used in xumx-sliCQ has 262 frequency bins grouped into 70 time-frequency blocks, but the idea is the same.
 
