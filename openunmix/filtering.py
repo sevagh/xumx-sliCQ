@@ -157,7 +157,6 @@ def expectation_maximization(
     iterations: int = 2,
     eps: float = 1e-10,
     batch_size: int = 200,
-    slicq: bool = False,
 ):
     r"""Expectation maximization algorithm, for refining source separation
     estimates.
@@ -189,15 +188,14 @@ def expectation_maximization(
         precision, by e.g. calling :func:`expectation_maximization`
         with ``x.to(torch.float64)``.
     """
-    if slicq:
-        # flatten slice and time bin
-        # this is missing the overlap but it won't matter in the EM context
-        x = torch.flatten(x, start_dim=2, end_dim=3)
-        y = torch.flatten(y, start_dim=2, end_dim=3)
+    # flatten slice and time bin
+    # this is missing the overlap but it won't matter in the EM context
+    x = torch.flatten(x, start_dim=2, end_dim=3)
+    y = torch.flatten(y, start_dim=2, end_dim=3)
 
-        # swap around dims
-        x = x.permute(2, 1, 0, 3)
-        y = y.permute(2, 1, 0, 3, 4)
+    # swap around dims
+    x = x.permute(2, 1, 0, 3)
+    y = y.permute(2, 1, 0, 3, 4)
 
     (nb_frames, nb_bins, nb_channels) = x.shape[:-1]
     nb_sources = y.shape[-1]
@@ -295,7 +293,6 @@ def wiener(
     iterations: int = 1,
     softmask: bool = False,
     residual: bool = False,
-    slicq: bool = False,
     scale_factor: float = 10.0,
     eps: float = 1e-10,
 ):
@@ -426,7 +423,7 @@ def wiener(
     y = y.to(torch.float64)
 
     # call expectation maximization
-    y = expectation_maximization(y, mix_stft.to(torch.float64), iterations, eps=eps, slicq=slicq)[0]
+    y = expectation_maximization(y, mix_stft.to(torch.float64), iterations, eps=eps)[0]
 
     # scale estimates up again
     y = y * max_abs

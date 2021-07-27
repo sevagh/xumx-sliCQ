@@ -222,22 +222,13 @@ class Separator(nn.Module):
         nb_channels: int = 2,
         device: str = "cpu",
         niter: int = 1,
-        stft_wiener: bool = True,
         softmask: bool = False,
-        wiener_win_len: Optional[int] = 300,
     ):
         super(Separator, self).__init__()
 
         # saving parameters
         self.niter = niter
         self.softmask = softmask
-        self.wiener_win_len = wiener_win_len
-
-        # whether to use wiener EM with the stft, or natively on the slicq (experimental)
-        self.stft_wiener = stft_wiener
-
-        self.n_fft = 4096
-        self.n_hop = 1024
 
         self.device = device
 
@@ -278,153 +269,112 @@ class Separator(nn.Module):
         # xumx inference - magnitude slicq estimate
         Ymag_bass, Ymag_vocals, Ymag_other, Ymag_drums = self.xumx_model(Xmag)
 
-        if self.stft_wiener:
-            # mix phase + magnitude estimate
-            Ycomplex_bass = phasemix_sep(X, Ymag_bass)
-            Ycomplex_vocals = phasemix_sep(X, Ymag_vocals)
-            Ycomplex_drums = phasemix_sep(X, Ymag_drums)
-            Ycomplex_other = phasemix_sep(X, Ymag_other)
+        print('sliCQ WIENER')
 
-            y_bass = self.insgt(Ycomplex_bass, audio.shape[-1])
-            y_drums = self.insgt(Ycomplex_drums, audio.shape[-1])
-            y_other = self.insgt(Ycomplex_other, audio.shape[-1])
-            y_vocals = self.insgt(Ycomplex_vocals, audio.shape[-1])
+        # block-wise wiener
+        # assemble it all into a zero-padded matrix
 
-            # initial estimate was obtained with slicq
-            # now we switch to the STFT domain for the wiener step
+        total_f_bins = 0
+        max_t_bins = 0
+        for i, X_block in enumerate(X):
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
+            total_f_bins += nb_f_bins
+            max_t_bins = max(max_t_bins, nb_t_bins)
 
-            print('STFT WIENER')
-            audio = torch.squeeze(audio, dim=0)
-            
-            mix_stft = torch.view_as_real(torch.stft(audio, self.n_fft, hop_length=self.n_hop, return_complex=True))
-            X = torch.abs(torch.view_as_complex(mix_stft))
-            
-            # initializing spectrograms variable
-            spectrograms = torch.zeros(X.shape + (nb_sources,), dtype=audio.dtype, device=X.device)
+        X_matrix = torch.zeros((nb_samples, nb_channels, total_f_bins, nb_slices, max_t_bins, last_dim), dtype=X[0].dtype, device=X[0].device)
 
-            for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-                # apply current model to get the source spectrogram
-                if target_name == 'bass':
-                    target_est = torch.squeeze(y_bass, dim=0)
-                elif target_name == 'vocals':
-                    target_est = torch.squeeze(y_vocals, dim=0)
-                elif target_name == 'drums':
-                    target_est = torch.squeeze(y_drums, dim=0)
-                elif target_name == 'other':
-                    target_est = torch.squeeze(y_other, dim=0)
-                spectrograms[..., j] = torch.abs(torch.stft(target_est, self.n_fft, hop_length=self.n_hop, return_complex=True))
+        freq_start = 0
+        for i, X_block in enumerate(X):
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
 
-            # transposing it as
-            # (nb_samples, nb_frames, nb_bins,{1,nb_channels}, nb_sources)
+            # assign up to the defined time bins - to the right will be zeros
+            X_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :] = X_block
 
-            spectrograms = spectrograms.permute(2, 1, 0, 3)
+            freq_start += nb_f_bins
 
-            # rearranging it into:
-            # (nb_samples, nb_frames, nb_bins, nb_channels, 2) to feed
-            # into filtering methods
-            mix_stft = mix_stft.permute(2, 1, 0, 3)
+        Xmag_matrix = torch.abs(torch.view_as_complex(X_matrix))
 
-            nb_frames = spectrograms.shape[0]
-            targets_stft = torch.zeros(
-                mix_stft.shape + (nb_sources,), dtype=audio.dtype, device=mix_stft.device
-            )
+        Ybass_matrix = torch.empty_like(Xmag_matrix)
+        Ydrums_matrix = torch.empty_like(Xmag_matrix)
+        Yvocals_matrix = torch.empty_like(Xmag_matrix)
+        Yother_matrix = torch.empty_like(Xmag_matrix)
 
-            pos = 0
-            if self.wiener_win_len:
-                wiener_win_len = self.wiener_win_len
-            else:
-                wiener_win_len = nb_frames
-            while pos < nb_frames:
-                cur_frame = torch.arange(pos, min(nb_frames, pos + wiener_win_len))
-                pos = int(cur_frame[-1]) + 1
+        freq_start = 0
+        for i, X_block in enumerate(X):
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, _ = X_block.shape
 
-                targets_stft[cur_frame] = wiener(
-                    spectrograms[cur_frame],
-                    mix_stft[cur_frame],
-                    self.niter,
-                    softmask=self.softmask,
-                    slicq=False, # stft wiener
-                )
+            # assign up to the defined time bins - to the right will be zeros
 
-            # getting to (nb_samples, nb_targets, channel, fft_size, n_frames, 2)
-            targets_stft = torch.view_as_complex(targets_stft.permute(4, 2, 1, 0, 3).contiguous())
+            Ybass_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_bass[i]
+            Yvocals_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_vocals[i]
+            Ydrums_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_drums[i]
+            Yother_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_other[i]
 
-            # inverse STFT
-            estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
+            freq_start += nb_f_bins
 
-            for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-                estimates[..., j] = torch.istft(targets_stft[j, ...], self.n_fft, hop_length=self.n_hop, length=audio.shape[-1])
+        spectrograms = torch.zeros(Xmag_matrix.shape + (nb_sources,), dtype=audio.dtype, device=Xmag_matrix.device)
 
-            estimates = torch.unsqueeze(estimates, dim=0).permute(0, 3, 1, 2).contiguous()
-        else:
-            print('sliCQ WIENER')
-            spectrograms = [None]*len(X)
+        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
+            # apply current model to get the source spectrogram
+            if target_name == 'bass':
+                target_est = Ybass_matrix
+            elif target_name == 'vocals':
+                target_est = Yvocals_matrix
+            elif target_name == 'drums':
+                target_est = Ydrums_matrix
+            elif target_name == 'other':
+                target_est = Yother_matrix
+            spectrograms[..., j] = target_est
 
+        spectrograms = wiener(
+            torch.squeeze(spectrograms, dim=0),
+            torch.squeeze(X_matrix, dim=0),
+            self.niter,
+            softmask=self.softmask,
+        )
+
+        # matrix back to list form for insgt
+        slicq_vocals = [None]*len(X)
+        slicq_bass = [None]*len(X)
+        slicq_drums = [None]*len(X)
+        slicq_other = [None]*len(X)
+
+        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
+            curr_target_spec = spectrograms[..., j]
+
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = Xmag_matrix.shape
+
+            # reverse the wiener/EM permutes etc.
+            curr_target_spec = torch.unsqueeze(curr_target_spec.permute(2, 1, 0, 3), dim=0)
+            curr_target_spec = curr_target_spec.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, curr_target_spec.shape[-1])
+
+            freq_start = 0
             for i, X_block in enumerate(X):
-                # block-size wiener
+                nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, _ = X_block.shape
 
-                # drop the batch size of 1 with the squeeze call
-                spectrograms_block = torch.zeros(Xmag[i].shape + (nb_sources,), dtype=audio.dtype, device=X_block.device)
-
-                for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-                    # apply current model to get the source spectrogram
-                    if target_name == 'bass':
-                        target_est = Ymag_bass[i]
-                    elif target_name == 'vocals':
-                        target_est = Ymag_vocals[i]
-                    elif target_name == 'drums':
-                        target_est = Ymag_drums[i]
-                    elif target_name == 'other':
-                        target_est = Ymag_other[i]
-                    spectrograms_block[..., j] = target_est
-
-                targets_slicq_block = wiener(
-                    torch.squeeze(spectrograms_block, dim=0),
-                    torch.squeeze(X_block, dim=0),
-                    self.niter,
-                    softmask=self.softmask,
-                    slicq=True, # slicq wiener
-                )
-
-                # we have to undo the flatten, permute, reshape, etc. that were necessary for the slicq wiener EM
-
-                # store the wiener-EM refined blocks in the list
-                spectrograms[i] = targets_slicq_block
-
-            slicq_vocals = [None]*len(X)
-            slicq_bass = [None]*len(X)
-            slicq_drums = [None]*len(X)
-            slicq_other = [None]*len(X)
-
-            for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-                for i in range(len(X)):
-                    curr_target_spec = spectrograms[i][..., j]
-                    nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = Xmag[i].shape
-
-                    curr_target_spec = torch.unsqueeze(curr_target_spec.permute(2, 1, 0, 3), dim=0)
-                    curr_target_spec = curr_target_spec.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, curr_target_spec.shape[-1])
-
-                    if target_name == 'bass':
-                        slicq_bass[i] = curr_target_spec.contiguous()
-                    elif target_name == 'vocals':
-                        slicq_vocals[i] = curr_target_spec.contiguous()
-                    elif target_name == 'drums':
-                        slicq_drums[i] = curr_target_spec.contiguous()
-                    elif target_name == 'other':
-                        slicq_other[i] = curr_target_spec.contiguous()
-
-            estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
-            for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
                 if target_name == 'bass':
-                    estimates[..., j] = self.insgt(slicq_bass, audio.shape[-1])
+                    slicq_bass[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
                 elif target_name == 'vocals':
-                    estimates[..., j] = self.insgt(slicq_vocals, audio.shape[-1])
+                    slicq_vocals[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
                 elif target_name == 'drums':
-                    estimates[..., j] = self.insgt(slicq_drums, audio.shape[-1])
+                    slicq_drums[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
                 elif target_name == 'other':
-                    estimates[..., j] = self.insgt(slicq_other, audio.shape[-1])
+                    slicq_other[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
 
-            estimates = estimates.permute(0, 3, 1, 2).contiguous()
+                freq_start += nb_f_bins
+
+        estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
+        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
+            if target_name == 'bass':
+                estimates[..., j] = self.insgt(slicq_bass, audio.shape[-1])
+            elif target_name == 'vocals':
+                estimates[..., j] = self.insgt(slicq_vocals, audio.shape[-1])
+            elif target_name == 'drums':
+                estimates[..., j] = self.insgt(slicq_drums, audio.shape[-1])
+            elif target_name == 'other':
+                estimates[..., j] = self.insgt(slicq_other, audio.shape[-1])
+
+        estimates = estimates.permute(0, 3, 1, 2).contiguous()
 
         return estimates
 
