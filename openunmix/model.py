@@ -276,12 +276,16 @@ class Separator(nn.Module):
 
         total_f_bins = 0
         max_t_bins = 0
+
+        # first, get frequency and time limits to build the large zero-padded matrix
         for i, X_block in enumerate(X):
             nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
             total_f_bins += nb_f_bins
             max_t_bins = max(max_t_bins, nb_t_bins)
 
         X_matrix = torch.zeros((nb_samples, nb_channels, total_f_bins, nb_slices, max_t_bins, last_dim), dtype=X[0].dtype, device=X[0].device)
+        Xmag_matrix = torch.zeros((nb_samples, nb_channels, total_f_bins, nb_slices, max_t_bins), dtype=audio.dtype, device=X[0].device)
+        spectrograms = torch.zeros(Xmag_matrix.shape + (nb_sources,), dtype=audio.dtype, device=Xmag_matrix.device)
 
         freq_start = 0
         for i, X_block in enumerate(X):
@@ -289,42 +293,14 @@ class Separator(nn.Module):
 
             # assign up to the defined time bins - to the right will be zeros
             X_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :] = X_block
+            Xmag_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Xmag[i]
+
+            spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 0] = Ymag_vocals[i]
+            spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 1] = Ymag_drums[i]
+            spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 2] = Ymag_bass[i]
+            spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 3] = Ymag_other[i]
 
             freq_start += nb_f_bins
-
-        Xmag_matrix = torch.abs(torch.view_as_complex(X_matrix))
-
-        Ybass_matrix = torch.empty_like(Xmag_matrix)
-        Ydrums_matrix = torch.empty_like(Xmag_matrix)
-        Yvocals_matrix = torch.empty_like(Xmag_matrix)
-        Yother_matrix = torch.empty_like(Xmag_matrix)
-
-        freq_start = 0
-        for i, X_block in enumerate(X):
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, _ = X_block.shape
-
-            # assign up to the defined time bins - to the right will be zeros
-
-            Ybass_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_bass[i]
-            Yvocals_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_vocals[i]
-            Ydrums_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_drums[i]
-            Yother_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Ymag_other[i]
-
-            freq_start += nb_f_bins
-
-        spectrograms = torch.zeros(Xmag_matrix.shape + (nb_sources,), dtype=audio.dtype, device=Xmag_matrix.device)
-
-        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-            # apply current model to get the source spectrogram
-            if target_name == 'bass':
-                target_est = Ybass_matrix
-            elif target_name == 'vocals':
-                target_est = Yvocals_matrix
-            elif target_name == 'drums':
-                target_est = Ydrums_matrix
-            elif target_name == 'other':
-                target_est = Yother_matrix
-            spectrograms[..., j] = target_est
 
         spectrograms = wiener(
             torch.squeeze(spectrograms, dim=0),

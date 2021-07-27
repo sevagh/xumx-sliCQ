@@ -149,8 +149,6 @@ def _invert(M: torch.Tensor, out: Optional[torch.Tensor] = None) -> torch.Tensor
 
 
 # Now define the signal-processing low-level functions used by the Separator
-
-
 def expectation_maximization(
     y: torch.Tensor,
     x: torch.Tensor,
@@ -420,14 +418,14 @@ def wiener(
     mix_stft = mix_stft / max_abs
     y = y / max_abs
 
-    y = y.to(torch.float64)
+    #y = y.to(torch.float64)
 
     # call expectation maximization
-    y = expectation_maximization(y, mix_stft.to(torch.float64), iterations, eps=eps)[0]
+    y = expectation_maximization(y, mix_stft, iterations, eps=eps)[0]
 
     # scale estimates up again
-    y = y * max_abs
-    return y.to(torch.float32)
+    return y * max_abs
+    #return y
 
 
 def _covariance(y_j):
