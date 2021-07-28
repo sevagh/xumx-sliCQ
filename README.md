@@ -7,11 +7,9 @@ My variant of the excellent [Open-Unmix](https://github.com/sigsep/open-unmix-py
     * Combination loss (CL) - loss function on different linear combinations of the 4 targets
     * Multi-domain loss (MDL) - frequency-domain loss (MSE) and time-domain loss ([auraloss](https://github.com/csteinmetz1/auraloss) SI-SDR)
 
-I trained this model for the [ISMIR 2021 Music Demixing Challenge](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021). The results showed that:
-* (:heavy_check_mark:) the sliCQ transform could successfully be used in a neural network for music source separation
-* (:heavy_multiplication_x:) the xumx-sliCQ model could not beat the UMX or XUMX baselines in the hidden test set (placing lower than #30 in the leaderboard)
+The score is X dB vs. 
 
-Given the flexiblity of the sliCQ transform, I still believe the idea can be explored and improved further with a better neural network architecture or different sliCQ parameters.
+I submitted this model to the [ISMIR 2021 Music Demixing Challenge](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021). Out of 31 submissions, all scored worse than the UMX and XUMX baselines, or timed out and failed to evaluate the hidden data within the specified time limit. The final model stopped being able to run under within competition time limit starting from [commit dad295f](https://github.com/sevagh/xumx-sliCQ/commit/dad295fe54c3641a49813a29837a2e23445e0918). The competition format was a great motivator, and it helped me create and refine xumx-sliCQ. Given the flexibility of the sliCQ transform, this model can be a good starting point for future improvements with different parameter search strategies or neural network architectures.
 
 ## Motivation
 
@@ -23,6 +21,14 @@ The sliCQ transform, which is the realtime version of the Nonstationary Gabor Tr
 ![slicq_spectral](./docs/slicq_spectral.png)
 
 My source separation hypothesis is based on the above spectrograms - given that the sliCQ transform can represent music with more clarity due to its adaptive time-frequency resolution, it is worth exploring in music source separation.
+
+### The ragged sliCQ transform
+
+The output of the ragged (or jagged) sliCQ transform of an audio waveform is a list of tensors representing blocks of frequency bins grouped by their time resolution:
+
+<img src="./docs/slicq_shape.png" width=768px/>
+
+This code block shows the shape and dtype of the sliCQ transform:
 
 ### sliCQ hyperparameter search
 
@@ -72,10 +78,6 @@ Forward/backward pass size (MB): 9359.33
 Params size (MB): 26.68
 Estimated Total Size (MB): 9414.64
 ```
-
-### Bandwidth
-
-In Open-Unmix, frequency bins above 16000 Hz are not learned by the network. In xumx-sliCQ, the same thing is done. If the starting frequency of a block of frequency bins is above the 16000 Hz bandwidth, the entire block passes through the network unchanged. This cuts down the total number of learnable parameters and allows xumx-sliCQ to evaluate the ISMIR 2021 Music Demixing Challenge hidden test set without timing out.
 
 ## Training and inference
 

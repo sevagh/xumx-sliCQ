@@ -1,8 +1,9 @@
 name: umx-gpu
 
 channels:
-  - conda-forge
+  - default
   - pytorch
+  - conda-forge
 
 dependencies:
   - python=3.9
@@ -28,3 +29,4 @@ dependencies:
     - memory_profiler
     - torchinfo
     - "--editable=git+git://github.com/csteinmetz1/auraloss@main#egg=auraloss"
+    - "-e .."

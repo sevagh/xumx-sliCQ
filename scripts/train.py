@@ -259,9 +259,6 @@ def main():
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
     )
     parser.add_argument(
-        "--enable-sdr-loss", action="store_true", default=False, help="enable SDR loss"
-    )
-    parser.add_argument(
         "--cuda-device", type=int, default=-1, help="choose which gpu to train on (-1 = 'cuda' in pytorch)"
     )
 
@@ -363,7 +360,7 @@ def main():
 
     optimizer = torch.optim.Adam(unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    criterion = LossCriterion(encoder, args.mcoef, enable_sdr=args.enable_sdr_loss)
+    criterion = LossCriterion(encoder, args.mcoef)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,

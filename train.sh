@@ -13,6 +13,7 @@ python scripts/train.py \
 	--root "${musdbdir}" --is-wav --nb-workers=4 --batch-size=$batch --epochs=$epochs --random-track-mix --patience=$epochs \
 	--fscale=bark --fbins=262 --fmin=32.9 --sllen=18060 \
 	--seq-dur=$seqdur \
-	$i --enable-sdr-loss \
+	$i \
 	--output "${outdir}" \
+	--model "${outdir}" \
 	--source-augmentations gain channelswap
