@@ -9,6 +9,7 @@ from pathlib import Path
 from contextlib import redirect_stderr
 import io
 import json
+import sys
 
 import openunmix
 from openunmix import model
@@ -107,9 +108,6 @@ def load_target_models(model_str_or_path="umxhq", device="cpu", pretrained=True,
     with open(Path(model_path, "xumx_slicq.json"), "r") as stream:
         results = json.load(stream)
 
-    target_model_path = Path(model_path, "xumx_slicq.pth")
-    state = torch.load(target_model_path, map_location=device)
-
     # need to configure an NSGT object to peek at its params to set up the neural network
     # e.g. M depends on the sllen which depends on fscale+fmin+fmax
     nsgt_base = transforms.NSGTBase(
@@ -125,20 +123,23 @@ def load_target_models(model_str_or_path="umxhq", device="cpu", pretrained=True,
 
     seq_dur = results["args"]["seq_dur"]
 
+    target_model_path = Path(model_path, "xumx_slicq.pth")
+    state = torch.load(target_model_path, map_location=device)
+
     jagged_slicq = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
     cnorm = model.ComplexNorm().to(device)
     jagged_slicq = cnorm(jagged_slicq)
 
-    xumx_model = model.OpenUnmix(
-        jagged_slicq,
-        max_bin=nsgt_base.max_bins(results["args"]["bandwidth"]),
-    )
-
     if pretrained:
-        xumx_model.load_state_dict(state, strict=False)
+        xumx_model = model.OpenUnmix(
+            jagged_slicq,
+            max_bin=nsgt_base.max_bins(results["args"]["bandwidth"]),
+        )
 
-    xumx_model.to(device)
-    return xumx_model, nsgt_base
+        xumx_model.load_state_dict(state, strict=False)
+        xumx_model.to(device)
+
+    return xumx_model, nsgt_base, jagged_slicq
 
 
 def load_separator(
@@ -170,13 +171,14 @@ def load_separator(
         with open(Path(model_path, "separator.json"), "r") as stream:
             enc_conf = json.load(stream)
 
-        xumx_model, model_nsgt = load_target_models(
+        xumx_model, model_nsgt, jagged_slicq_sample = load_target_models(
             model_str_or_path=model_path, pretrained=pretrained, sample_rate=enc_conf["sample_rate"], device=device
         )
 
         separator = model.Separator(
-            xumx_model=xumx_model,
-            xumx_nsgt=model_nsgt,
+            xumx_model,
+            model_nsgt,
+            jagged_slicq_sample,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
         ).to(device)

@@ -105,3 +105,5 @@ Temporary Items
 *.tfevents.*localhost.localdomain.*
 
 scripts/src/
+
+!pretrained-model/*

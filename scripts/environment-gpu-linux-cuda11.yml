@@ -1,0 +1,33 @@
+name: umx-gpu
+
+channels:
+  - default
+  - pytorch
+  - conda-forge
+
+dependencies:
+  - python=3.9
+  - numpy
+  - numba
+  - scipy
+  - pytorch==1.9
+  - torchaudio
+  - cudatoolkit=11
+  - scikit-learn
+  - tqdm
+  - libsndfile
+  - ffmpeg
+  - pip
+  - pip:
+    - musdb==0.3.1
+    - norbert>=0.2.0
+    - museval==0.3.1
+    - asteroid-filterbanks==0.3.2
+    - gitpython
+    - matplotlib
+    - line_profiler
+    - tensorboard
+    - memory_profiler
+    - torchinfo
+    - "--editable=git+git://github.com/csteinmetz1/auraloss@main#egg=auraloss"
+    - "-e .."

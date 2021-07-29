@@ -23,16 +23,14 @@ def separate_and_evaluate(
     mus,
     aggregate_dict: dict = None,
     device: Union[str, torch.device] = "cpu",
-    wiener_win_len: Optional[int] = None,
 ) -> str:
     print('loading separator')
     separator = utils.load_separator(
         model_str_or_path=model_str_or_path,
         niter=niter,
         residual=residual,
-        wiener_win_len=wiener_win_len,
         device=device,
-        pretrained=True,
+        pretrained=True
     )
 
     separator.freeze()
@@ -176,7 +174,7 @@ if __name__ == "__main__":
     else:
         results = museval.EvalStore()
         # only do 1 track
-        for track in tqdm.tqdm(mus.tracks):
+        for track in tqdm.tqdm(mus.tracks[1:2]):
             print('track: {0}'.format(track.name))
             scores = separate_and_evaluate(
                 track,
@@ -191,6 +189,7 @@ if __name__ == "__main__":
             )
             print(track, "\n", scores)
             results.add_track(scores)
+            break
 
     print(results)
     method = museval.MethodStore()

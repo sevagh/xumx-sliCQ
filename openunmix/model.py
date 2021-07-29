@@ -26,12 +26,12 @@ class DummyTimeBucket(nn.Module):
         # set all parameters as not requiring gradient, more RAM-efficient
         # at test time
         for p in self.parameters():
-            p.requires_grad = False
+            #p.requires_grad = False
+            p.grad = None
         self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
-        mix = x.detach().clone()
-        return mix
+        return x
 
 
 class OpenUnmixTimeBucket(nn.Module):
@@ -113,7 +113,8 @@ class OpenUnmixTimeBucket(nn.Module):
         # set all parameters as not requiring gradient, more RAM-efficient
         # at test time
         for p in self.parameters():
-            p.requires_grad = False
+            #p.requires_grad = False
+            p.grad = None
         self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -196,7 +197,8 @@ class OpenUnmix(nn.Module):
         # set all parameters as not requiring gradient, more RAM-efficient
         # at test time
         for p in self.parameters():
-            p.requires_grad = False
+            #p.requires_grad = False
+            p.grad = None
         self.eval()
 
     def forward(self, x) -> Tensor:
@@ -218,6 +220,7 @@ class Separator(nn.Module):
         self,
         xumx_model,
         xumx_nsgt,
+        jagged_slicq_sample_input,
         sample_rate: float = 44100.0,
         nb_channels: int = 2,
         device: str = "cpu",
@@ -242,13 +245,27 @@ class Separator(nn.Module):
         self.xumx_model = xumx_model
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
 
+        # first, get frequency and time limits to build the large zero-padded matrix
+        total_f_bins = 0
+        max_t_bins = 0
+        for i, block in enumerate(jagged_slicq_sample_input):
+            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = block.shape
+            total_f_bins += nb_f_bins
+            max_t_bins = max(max_t_bins, nb_t_bins)
+
+        self.total_f_bins = total_f_bins
+        self.max_t_bins = max_t_bins
+
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
         # at test time
         for p in self.parameters():
-            p.requires_grad = False
+            #p.requires_grad = False
+            p.grad = None
+        self.xumx_model.freeze()
         self.eval()
 
+    @torch.no_grad()
     def forward(self, audio: Tensor) -> Tensor:
         """Performing the separation on audio input
 
@@ -274,26 +291,18 @@ class Separator(nn.Module):
         # block-wise wiener
         # assemble it all into a zero-padded matrix
 
-        total_f_bins = 0
-        max_t_bins = 0
+        nb_slices = X[0].shape[3]
+        last_dim = 2
 
-        # first, get frequency and time limits to build the large zero-padded matrix
-        for i, X_block in enumerate(X):
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
-            total_f_bins += nb_f_bins
-            max_t_bins = max(max_t_bins, nb_t_bins)
-
-        X_matrix = torch.zeros((nb_samples, nb_channels, total_f_bins, nb_slices, max_t_bins, last_dim), dtype=X[0].dtype, device=X[0].device)
-        Xmag_matrix = torch.zeros((nb_samples, nb_channels, total_f_bins, nb_slices, max_t_bins), dtype=audio.dtype, device=X[0].device)
-        spectrograms = torch.zeros(Xmag_matrix.shape + (nb_sources,), dtype=audio.dtype, device=Xmag_matrix.device)
+        X_matrix = torch.zeros((nb_samples, self.nb_channels, self.total_f_bins, nb_slices, self.max_t_bins, last_dim), dtype=X[0].dtype, device=X[0].device)
+        spectrograms = torch.zeros(X_matrix.shape[:-1] + (nb_sources,), dtype=audio.dtype, device=X_matrix.device)
 
         freq_start = 0
         for i, X_block in enumerate(X):
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
+            nb_samples, self.nb_channels, nb_f_bins, nb_slices, nb_t_bins, last_dim = X_block.shape
 
             # assign up to the defined time bins - to the right will be zeros
             X_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :] = X_block
-            Xmag_matrix[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins] = Xmag[i]
 
             spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 0] = Ymag_vocals[i]
             spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, 1] = Ymag_drums[i]
@@ -309,46 +318,35 @@ class Separator(nn.Module):
             softmask=self.softmask,
         )
 
-        # matrix back to list form for insgt
+        # reverse the wiener/EM permutes etc.
+        spectrograms = torch.unsqueeze(spectrograms.permute(2, 1, 0, 3, 4), dim=0)
+        spectrograms = spectrograms.reshape(nb_samples, self.nb_channels, self.total_f_bins, nb_slices, self.max_t_bins, *spectrograms.shape[-2:])
+
         slicq_vocals = [None]*len(X)
         slicq_bass = [None]*len(X)
         slicq_drums = [None]*len(X)
         slicq_other = [None]*len(X)
 
-        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-            curr_target_spec = spectrograms[..., j]
-
-            nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = Xmag_matrix.shape
-
-            # reverse the wiener/EM permutes etc.
-            curr_target_spec = torch.unsqueeze(curr_target_spec.permute(2, 1, 0, 3), dim=0)
-            curr_target_spec = curr_target_spec.reshape(nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, curr_target_spec.shape[-1])
-
-            freq_start = 0
-            for i, X_block in enumerate(X):
-                nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins, _ = X_block.shape
-
-                if target_name == 'bass':
-                    slicq_bass[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
-                elif target_name == 'vocals':
-                    slicq_vocals[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
-                elif target_name == 'drums':
-                    slicq_drums[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
-                elif target_name == 'other':
-                    slicq_other[i] = curr_target_spec[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :].contiguous()
-
-                freq_start += nb_f_bins
-
         estimates = torch.empty(audio.shape + (nb_sources,), dtype=audio.dtype, device=audio.device)
-        for j, target_name in enumerate(["vocals", "drums", "bass", "other"]):
-            if target_name == 'bass':
-                estimates[..., j] = self.insgt(slicq_bass, audio.shape[-1])
-            elif target_name == 'vocals':
-                estimates[..., j] = self.insgt(slicq_vocals, audio.shape[-1])
-            elif target_name == 'drums':
-                estimates[..., j] = self.insgt(slicq_drums, audio.shape[-1])
-            elif target_name == 'other':
-                estimates[..., j] = self.insgt(slicq_other, audio.shape[-1])
+
+        nb_samples, self.nb_channels, nb_f_bins, nb_slices, nb_t_bins = X_matrix.shape[:-1]
+
+        # matrix back to list form for insgt
+        freq_start = 0
+        for i, X_block in enumerate(X):
+            nb_samples, self.nb_channels, nb_f_bins, nb_slices, nb_t_bins, _ = X_block.shape
+
+            slicq_vocals[i] = spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :, 0].contiguous()
+            slicq_drums[i] = spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :, 1].contiguous()
+            slicq_bass[i] = spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :, 2].contiguous()
+            slicq_other[i] = spectrograms[:, :, freq_start:freq_start+nb_f_bins, :, : nb_t_bins, :, 3].contiguous()
+
+            freq_start += nb_f_bins
+
+        estimates[..., 0] = self.insgt(slicq_vocals, audio.shape[-1])
+        estimates[..., 1] = self.insgt(slicq_drums, audio.shape[-1])
+        estimates[..., 2] = self.insgt(slicq_bass, audio.shape[-1])
+        estimates[..., 3] = self.insgt(slicq_other, audio.shape[-1])
 
         estimates = estimates.permute(0, 3, 1, 2).contiguous()
 
