@@ -1,29 +1,27 @@
 from setuptools import setup, find_packages
 
-umx_version = "1.1.2"
+xumx_version = "0.0.1"
 
 with open("README.md", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="xumx_slicq",
-    version=umx_version,
-    author="Fabian-Robert Stöter",
-    author_email="fabian-robert.stoter@inria.fr",
-    url="https://github.com/sigsep/open-unmix-pytorch",
-    description="PyTorch-based music source separation toolkit",
+    version=xumx_version,
+    author="Sevag Hanssian",
+    author_email="sevagh@pm.me",
+    url="https://github.com/sevagh/xumx-sliCQ",
+    description="sliCQ adaptation of the well-known Open-Unmix music source separation system",
     long_description=long_description,
     long_description_content_type="text/markdown",
     license="MIT",
     python_requires=">=3.6",
     install_requires=["numpy", "torchaudio>=0.8.0", "torch>=1.8.0", "tqdm"],
     extras_require={
-        "asteroid": ["asteroid-filterbanks>=0.3.2"],
         "tests": [
             "pytest",
             "musdb>=0.4.0",
             "museval>=0.4.0",
-            "asteroid-filterbanks>=0.3.2",
             "onnx",
             "tqdm",
         ],
