@@ -6,7 +6,7 @@ with open("README.md", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="openunmix",
+    name="xumx_slicq",
     version=umx_version,
     author="Fabian-Robert Stöter",
     author_email="fabian-robert.stoter@inria.fr",
@@ -30,7 +30,7 @@ setup(
         "stempeg": ["stempeg"],
         "evaluation": ["musdb>=0.4.0", "museval>=0.4.0"],
     },
-    entry_points={"console_scripts": ["umx=openunmix.cli:separate"]},
+    entry_points={"console_scripts": ["umx=xumx_slicq.cli:separate"]},
     packages=find_packages(),
     include_package_data=True,
     classifiers=[

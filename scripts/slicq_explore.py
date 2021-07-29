@@ -9,7 +9,7 @@ from functools import partial
 import numpy as np
 import random
 import argparse
-from openunmix.transforms import make_filterbanks, NSGTBase, phasemix_sep, ComplexNorm
+from xumx_slicq.transforms import make_filterbanks, NSGTBase, phasemix_sep, ComplexNorm
 from tqdm import tqdm
 
 import scipy

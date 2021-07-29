@@ -22,12 +22,12 @@ import sklearn.preprocessing
 from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
 
-from openunmix import data
-from openunmix import model
-from openunmix import utils
-from openunmix import transforms
-from openunmix import filtering
-from openunmix.loss import LossCriterion
+from xumx_slicq import data
+from xumx_slicq import model
+from xumx_slicq import utils
+from xumx_slicq import transforms
+from xumx_slicq import filtering
+from xumx_slicq.loss import LossCriterion
 
 tqdm.monitor_interval = 0
 
