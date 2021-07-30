@@ -1,7 +1,7 @@
 # xumx-sliCQ
 
 My variant of the [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation (or demixing) system which, given a mixed song input, estimates 4 target sources (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
-* The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) vs. the STFT
+* The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) instead of an STFT
 * Convolutional architecture (based loosely on [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266)) instead of the UMX linear encoder + LSTM + decoder
 * Single network like [CrossNet-Open-Unmix](https://github.com/JeffreyCA/spleeterweb-xumx) ([Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf)), aka X-UMX
     * Combination loss (CL) - loss function on different linear combinations of the 4 targets
@@ -22,13 +22,13 @@ The sliCQ transform, which is the realtime version of the Nonstationary Gabor Tr
 
 **coming soon!**
 
-I will show boxplots of the BSS scores on the full MUSDB18-HQ test set, similar to the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267). I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models.
+I will show boxplots of the [BSS scores](https://github.com/sigsep/sigsep-mus-eval) on the full MUSDB18-HQ test set, similar to the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267). I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models.
 
 Here's an early teaser on a small handful of tracks to show how xumx-sliCQ is generally a few points of SDR worse than umx:
 
 ![early_boxplot](./docs/boxplot_teaser.png)
 
-**nb** I have omitted the pre-trained x-umx model because I get abnormally low scores, so I probably have a bug in running the inference (using the [Sony x-umx code](https://github.com/sony/ai-research-code/tree/master/x-umx)). It will be fixed when I publish the full evaluation.
+**N.B.** I have omitted the pre-trained x-umx model because I get abnormally low scores, so I probably have a bug in running the inference (using the [Sony x-umx code](https://github.com/sony/ai-research-code/tree/master/x-umx)). It will be fixed when I publish the full evaluation.
 
 ## Network architecture
 
