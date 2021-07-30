@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-musdbdir="/run/media/sevagh/linux-extra/TRAINING-MUSIC/MUSDB18-HQ/"
+musdbdir="/home/sevagh/TRAINING-MUSIC/MUSDB18-HQ/"
 outdir="xumx-slicq-train"
 
 set -x
