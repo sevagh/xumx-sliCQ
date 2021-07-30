@@ -1,9 +1,9 @@
 # xumx-sliCQ
 
 My variant of the [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation (or demixing) system which, given a mixed song input, estimates 4 target sources (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
-* The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) vs. the STFT
+* The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) instead of the short-time Fourier transform (STFT)
 * Convolutional architecture (based loosely on [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266)) instead of the UMX linear encoder + LSTM + decoder
-* Single network like [CrossNet-Open-Unmix](https://github.com/JeffreyCA/spleeterweb-xumx) ([Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf)), aka X-UMX
+* Single network like [CrossNet-Open-Unmix](https://github.com/sony/ai-research-code/tree/master/x-umx) ([Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf)), aka X-UMX
     * Combination loss (CL) - loss function on different linear combinations of the 4 targets
     * Multi-domain loss (MDL) - frequency-domain loss (MSE) and time-domain loss ([auraloss](https://github.com/csteinmetz1/auraloss) SI-SDR)
 
@@ -11,7 +11,7 @@ It's a working demonstration of the sliCQ transform in a neural network for musi
 
 ## Motivation
 
-Time-frequency masking is one strategy for music source separation, where the magnitude spectrogram of the mix is multiplied by an estimated target mask ([more background here](https://source-separation.github.io/tutorial/basics/tf_and_masking.html)). Open-Unmix uses the short-time Fourier transform (STFT) for the spectral representation of music, and learns to estimate the magnitude STFT of a target from the mixture. The STFT is useful in audio and music applications, but it has a uniform and fixed frequency and time resolution controlled by the window size, where one size does not fit all: [paper 1](https://arxiv.org/abs/1504.07372), [paper 2](https://arxiv.org/abs/1905.03330).
+Time-frequency masking is one strategy for music source separation, where the magnitude spectrogram of the mix is multiplied by an estimated target mask ([more background here](https://source-separation.github.io/tutorial/basics/tf_and_masking.html)). Open-Unmix uses the short-time Fourier transform (STFT) for the spectral representation of music, and learns to estimate the magnitude STFT of a target from the mixture. The STFT is useful in audio and music applications, but it has a uniform and fixed frequency and time resolution controlled by the window size, where one size does not fit all ([Simpson 2015](https://arxiv.org/abs/1504.07372), [Kavalerov et al. 2019](https://arxiv.org/abs/1905.03330)).
 
 Transforms with nonuniform frequency spacing, leading to varying time-frequency resolution, can better represent the tonal and transient characteristics of musical signals. [Frequency-warped transforms](http://elvera.nue.tu-berlin.de/typo3/files/1015Burred2006.pdf) such as the [constant-Q transform](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1007&context=argart) have been used in music source separation systems to improve over the STFT.
 
@@ -22,13 +22,19 @@ The sliCQ transform, which is the realtime version of the Nonstationary Gabor Tr
 
 **coming soon!**
 
-I will show boxplots of the BSS scores on the full MUSDB18-HQ test set, similar to the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267). I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models.
+BSS (blind source separation) scores, originating from [Vincent et al. 2006](https://hal.inria.fr/inria-00544230/document), are a popular objective measure of source separation performance. BSS is used in much of source separation and demixing literature, and [BSSv4](https://github.com/sigsep/sigsep-mus-eval#bsseval-v4) was used in the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267).
 
-Here's an early teaser on a small handful of tracks to show how xumx-sliCQ is generally a few points of SDR worse than umx:
+I will show boxplots of the BSSv4 scores on the full MUSDB18-HQ test set, similar to the boxplots from SiSec 2018. I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models. Here's an early teaser on a small handful of tracks to show how xumx-sliCQ is generally a few points of SDR worse than umx:
 
 ![early_boxplot](./docs/boxplot_teaser.png)
 
-**nb** I have omitted the pre-trained x-umx model because I get abnormally low scores, so I probably have a bug in running the inference (using the [Sony x-umx code](https://github.com/sony/ai-research-code/tree/master/x-umx)). It will be fixed when I publish the full evaluation.
+The compared systems will be:
+
+| Project name | Paper | Repo | Pretrained model |
+|--------------|-------|------|------------------|
+| Open-Unmix, UMX | [Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document) | https://github.com/sigsep/open-unmix-pytorch | https://zenodo.org/record/3370489 (UMX-HQ) |
+| X-UMX, CrossNet-OpenUnmix | [Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf) | https://github.com/sony/ai-research-code/tree/master/x-umx | https://nnabla.org/pretrained-models/ai-research-code/x-umx/x-umx.h5 |
+| xumx-sliCQ (this project) | n/a | https://github.com/sevagh/xumx-sliCQ | https://github.com/sevagh/xumx-sliCQ/tree/main/pretrained-model |
 
 ## Network architecture
 
