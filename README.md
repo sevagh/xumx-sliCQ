@@ -1,6 +1,6 @@
 # xumx-sliCQ
 
-My variant of the excellent [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation system which, given a mixed song input, estimates 4 target sources (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
+My variant of the [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (aka UMX) template for music source separation ([Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document)). This is a music source separation (or demixing) system which, given a mixed song input, estimates 4 target sources (drums, bass, vocals, other), as defined by [MUSDB18-HQ](https://zenodo.org/record/3338373) dataset. It differs from open-unmix-pytorch in the following ways:
 * The spectral transform is the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Dörfler et al. 2014](https://www.univie.ac.at/nonstatgab/cqt/index.php)) vs. the STFT
 * Convolutional architecture (based loosely on [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266)) instead of the UMX linear encoder + LSTM + decoder
 * Single network like [CrossNet-Open-Unmix](https://github.com/JeffreyCA/spleeterweb-xumx) ([Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf)), aka X-UMX
@@ -20,17 +20,29 @@ The sliCQ transform, which is the realtime version of the Nonstationary Gabor Tr
 
 ## Results
 
+**coming soon!**
+
+I will show boxplots of the BSS scores on the full MUSDB18-HQ test set, similar to the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267). I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models.
+
+Here's an early teaser on a small handful of tracks to show how xumx-sliCQ is generally a few points of SDR worse than umx:
+
+![early_boxplot](./docs/boxplot_teaser.png)
+
+**nb** I have omitted the pre-trained x-umx model because I get abnormally low scores, so I probably have a bug in running the inference (using the [Sony x-umx code](https://github.com/sony/ai-research-code/tree/master/x-umx)). It will be fixed when I publish the full evaluation.
+
 ## Network architecture
 
 The architecture diagram of xumx-sliCQ shows how closely it resembles Open-Unmix:
 
 ![xumx_system](./docs/xumx_slicq_system.png)
 
-The ragged sliCQ is stored in a matrix with zero-padding to perform a relatively fast Wiener EM step directly on the sliCQ transform ([adapting STFT Wiener EM to the sliCQ is discussed here](https://discourse.aicrowd.com/t/umx-iterative-wiener-expectation-maximization-for-non-stft-time-frequency-transforms/6191)).
+The ragged sliCQ is stored in a matrix with zero-padding to perform the Wiener EM step directly on the sliCQ transform ([adapting STFT Wiener EM to the sliCQ is discussed here](https://discourse.aicrowd.com/t/umx-iterative-wiener-expectation-maximization-for-non-stft-time-frequency-transforms/6191)).
 
 A look into each of the 4 target networks of xumx-sliCQ shows how the convolutional network architecture is applied to the ragged sliCQ transform, where each block contains the frequency bins that share the same time-frequency resolution:
 
 ![xumx_pertarget](./docs/xumx_slicq_pertarget.png)
+
+**N.B.** only two blocks are shown for illustrative purposes in the diagram, but the sliCQ used in the model has 262 frequency bins grouped into 70 time-frequency resolution blocks.
 
 Each "Conv-Net" shown above is loosely based on the 2-layer convolutional denoising autoencoder architecture that can be seen in [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266). The encoder consists of 2x `Conv2d -> BatchNorm2d -> ReLU`, and the decoder consists of 2x `ConvTranspose2d -> BatchNorm2d -> ReLU`. The LSTM model of Open-Unmix did not produce good results in my experiments, and I had better luck with convolutional models.
 
@@ -85,7 +97,7 @@ An epoch takes roughly 5.8 minutes to execute on an RTX 3080 Ti with batch_size=
 * balanced track sampling (same as UMX)
 * gain and channelswap augmentations (same as UMX)
 
-The pretrained model is [included in this repository](./pretrained-model). The weights are 28M on disk (Linux).
+The pretrained model is [included in this repository](./pretrained-model). The weights are 28MB on disk (Linux), considerably smaller than umxhq (137MB) and x-umx (136MB).
 
 ## ISMIR 2021 Music Demixing Challenge
 
