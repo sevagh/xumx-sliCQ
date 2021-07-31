@@ -11,7 +11,7 @@ It's a working demonstration of the sliCQ transform in a neural network for musi
 
 ## Motivation
 
-Time-frequency masking is one strategy for music source separation, where the magnitude spectrogram of the mix is multiplied by an estimated target mask ([more background here](https://source-separation.github.io/tutorial/basics/tf_and_masking.html)). Open-Unmix uses the short-time Fourier transform (STFT) for the spectral representation of music, and learns to estimate the magnitude STFT of a target from the mixture. The STFT is useful in audio and music applications, but it has a uniform and fixed frequency and time resolution controlled by the window size, where one size does not fit all ([Simpson 2015](https://arxiv.org/abs/1504.07372), [Kavalerov et al. 2019](https://arxiv.org/abs/1905.03330)).
+Time-frequency masking is one strategy for music source separation, where the magnitude spectrogram of the mix is multiplied by an estimated target mask ([more background here](https://source-separation.github.io/tutorial/basics/tf_and_masking.html)). Open-Unmix uses the short-time Fourier transform (STFT) for the spectral representation of music, and learns to estimate the magnitude STFT of a target from the mixture. The STFT is useful in audio and music applications, but it has a uniform and fixed time-frequency resolution controlled by the window size, where one size does not fit all ([Simpson 2015](https://arxiv.org/abs/1504.07372), [Kavalerov et al. 2019](https://arxiv.org/abs/1905.03330)).
 
 Transforms with nonuniform frequency spacing, leading to varying time-frequency resolution, can better represent the tonal and transient characteristics of musical signals. [Frequency-warped transforms](http://elvera.nue.tu-berlin.de/typo3/files/1015Burred2006.pdf) such as the [constant-Q transform](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1007&context=argart) have been used in music source separation systems to improve over the STFT.
 
@@ -20,21 +20,19 @@ The sliCQ transform, which is the realtime version of the Nonstationary Gabor Tr
 
 ## Results
 
-**coming soon!**
-
 BSS (blind source separation) scores, originating from [Vincent et al. 2006](https://hal.inria.fr/inria-00544230/document), are a popular objective measure of source separation performance. BSS is used in much of source separation and demixing literature, and [BSSv4](https://github.com/sigsep/sigsep-mus-eval#bsseval-v4) was used in the [SiSec 2018 evaluation campaign](https://arxiv.org/abs/1804.06267).
 
-I will show boxplots of the BSSv4 scores on the full MUSDB18-HQ test set, similar to the boxplots from SiSec 2018. I will compare xumx-sliCQ to both the pretrained umxhq and pretrained x-umx models. Here's an early teaser on a small handful of tracks to show how xumx-sliCQ is generally a few points of SDR worse than umx:
+The evaluation code (using mostly [SigSep tools](https://github.com/sigsep/)) is stored in the [xumx_slicq_extra](https://gitlab.com/sevagh/xumx_slicq_extra/-/tree/main/mss_evaluation) repo, and the compared systems are:
+
+| Project | Name in boxplot | Paper | Repo | Pretrained model |
+|--------------|--------|-------|------|------------------|
+| Open-Unmix (UMX) | `umx` | [Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document) | https://github.com/sigsep/open-unmix-pytorch | https://zenodo.org/record/3370489 (UMX-HQ) |
+| CrossNet-OpenUnmix (X-UMX) | `xumx` | [Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf) | https://github.com/sony/ai-research-code/tree/master/x-umx | https://nnabla.org/pretrained-models/ai-research-code/x-umx/x-umx.h5 |
+| xumx-sliCQ | `slicq` | n/a | https://github.com/sevagh/xumx-sliCQ | https://github.com/sevagh/xumx-sliCQ/tree/main/pretrained-model |
+
+The following boxplot shows the BSSv4 scores of UMXHQ vs. X-UMX vs. xumx-sliCQ on the 50-track MUSDB18-HQ test set (similar to SiSec 2018):
 
 ![early_boxplot](./docs/boxplot_teaser.png)
-
-The compared systems will be:
-
-| Project name | Paper | Repo | Pretrained model |
-|--------------|-------|------|------------------|
-| Open-Unmix, UMX | [Stöter, Uhlich, Liutkus, Mitsufuji 2019](https://hal.inria.fr/hal-02293689/document) | https://github.com/sigsep/open-unmix-pytorch | https://zenodo.org/record/3370489 (UMX-HQ) |
-| X-UMX, CrossNet-OpenUnmix | [Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf) | https://github.com/sony/ai-research-code/tree/master/x-umx | https://nnabla.org/pretrained-models/ai-research-code/x-umx/x-umx.h5 |
-| xumx-sliCQ (this project) | n/a | https://github.com/sevagh/xumx-sliCQ | https://github.com/sevagh/xumx-sliCQ/tree/main/pretrained-model |
 
 ## Network architecture
 
@@ -99,11 +97,18 @@ loss = 0.1*sisdr_loss + mse_loss
 
 An epoch takes roughly 5.8 minutes to execute on an RTX 3080 Ti with batch_size=32 and nb_workers=4 (Ryzen 3700x). The same training ideas are used from [open-unmix](https://github.com/sigsep/open-unmix-pytorch/blob/master/docs/training.md):
 * chunking with a seq_dur of 1s (the umx default of 6s makes the training prohibitively slow with 15+ minute epochs - on the other hand, >1s durations would have allowed for larger convolution kernels in the time direction)
-* random track mixing (enabled explicitly with a flag, --random-track-mix, not hardcoded)
+* random track mixing (same as UMX)
 * balanced track sampling (same as UMX)
 * gain and channelswap augmentations (same as UMX)
 
-The pretrained model is [included in this repository](./pretrained-model). The weights are 28MB on disk (Linux), considerably smaller than umxhq (137MB) and x-umx (136MB).
+If your GPU has less than 12GB device memory, you probably need to adjust the batch_size downwards to 16 or 8.
+
+
+The pretrained model is [included in this repository](./pretrained-model). The weights are 28MB on disk (Linux), considerably smaller than umxhq (137MB) and x-umx (136MB). The [training script](./scripts/train.py) defines default arguments which are the same as the arguments used to train the [pretrained model](./pretrained-model) of xumx-sliCQ. As such, to reproduce my results, you need to simply run it (adjusting `--nb-workers` depending on your CPU - 4 is a reasonable value I borrowed from Open-Unmix):
+
+```
+$ python scripts/train.py --root=/path/to/musdb18hq --nb-workers=4 --output=/train/dir/
+```
 
 ## ISMIR 2021 Music Demixing Challenge
 
@@ -124,3 +129,9 @@ I have two previous projects where I explored similar ideas:
 Even earlier than that, my interest in source separation and demixing began with harmonic/percussive source separation:
 * [Real-Time-HPSS](https://github.com/sevagh/Real-Time-HPSS), a realtime adaptation of [Fitzgerald 2010](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1078&context=argcon)'s median filtering harmonic/percussive source separation algorithm
 * [Zen](https://github.com/sevagh/Zen), a very fast C++ CUDA implementation of HPSS
+
+## Extra
+
+Some extra components related to xumx-sliCQ are:
+* https://github.com/sevagh/nsgt - nsgt fork and standalone copy of the PyTorch nsgt/sliCQ used in this model
+* https://gitlab.com/sevagh/xumx_slicq_extra - evaluation scripts, oracle evaluations, various umx-slicq experimental architectures, latex files, other misc scripts

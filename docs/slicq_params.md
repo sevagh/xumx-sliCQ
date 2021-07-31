@@ -68,6 +68,10 @@ Various constraints were discovered during the experimentation procedure, such a
 * Maximum slice length, which is the sliCQ equivalent of the STFT window size
 * Frequency bins, since more frequency bins result in a larger transform
 
+### Further oracle analyses and boxplots
+
+The repo https://gitlab.com/sevagh/xumx_slicq_extra/-/tree/main/mss_evaluation contains more oracle scripts e.g, IRM1, IBM2.
+
 ## Script
 
 The script for the random parameter search is at scripts/slicq_explore.py.

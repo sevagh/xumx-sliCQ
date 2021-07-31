@@ -168,13 +168,13 @@ def main():
 
     # Training Parameters
     parser.add_argument("--epochs", type=int, default=1000)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate, defaults to 1e-3")
     parser.add_argument(
         "--patience",
         type=int,
-        default=140,
-        help="maximum number of train epochs (default: 140)",
+        default=1000,
+        help="maximum number of train epochs (default: 1000)",
     )
     parser.add_argument(
         "--lr-decay-patience",
@@ -205,7 +205,7 @@ def main():
     parser.add_argument(
         "--seq-dur",
         type=float,
-        default=6.0,
+        default=1.0,
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
@@ -223,19 +223,19 @@ def main():
     parser.add_argument(
         "--sllen",
         type=int,
-        default=4096,
+        default=18060,
         help="slicq slice length",
     )
     parser.add_argument(
         "--fbins",
         type=int,
-        default=60,
+        default=262,
         help="number of frequency bins for NSGT scale",
     )
     parser.add_argument(
         "--fmin",
         type=float,
-        default=20.,
+        default=32.9,
         help="min frequency for NSGT scale",
     )
     parser.add_argument(

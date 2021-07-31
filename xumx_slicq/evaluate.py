@@ -93,13 +93,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--is-wav",
-        action="store_true",
-        default=False,
-        help="flags wav version of the dataset",
-    )
-
-    parser.add_argument(
         "--niter",
         type=int,
         default=1,
@@ -141,7 +134,7 @@ if __name__ == "__main__":
         root=args.root,
         download=args.root is None,
         subsets=args.subset,
-        is_wav=args.is_wav,
+        is_wav=True,
     )
     aggregate_dict = None if args.aggregate is None else json.loads(args.aggregate)
 
