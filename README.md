@@ -30,9 +30,9 @@ The evaluation code (using mostly [SigSep tools](https://github.com/sigsep/)) is
 | CrossNet-OpenUnmix (X-UMX) | `xumx` | [Sawata, Uhlich, Takahashi, Mitsufuji 2020](https://www.ismir2020.net/assets/img/virtual-booth-sonycsl/cUMX_paper.pdf) | https://github.com/sony/ai-research-code/tree/master/x-umx | https://nnabla.org/pretrained-models/ai-research-code/x-umx/x-umx.h5 |
 | xumx-sliCQ | `slicq` | n/a | https://github.com/sevagh/xumx-sliCQ | https://github.com/sevagh/xumx-sliCQ/tree/main/pretrained-model |
 
-The following boxplot shows the BSSv4 scores of UMXHQ vs. X-UMX vs. xumx-sliCQ on the 50-track MUSDB18-HQ test set (similar to SiSec 2018):
+The following boxplot (generated like [SiSec 2018](https://github.com/sigsep/sigsep-mus-2018-analysis)) shows the BSSv4 scores of UMXHQ vs. X-UMX vs. xumx-sliCQ on the 50-track MUSDB18-HQ test set:
 
-![early_boxplot](./docs/boxplot_teaser.png)
+![boxplot_full](./docs/boxplot_full.png)
 
 ## Network architecture
 
@@ -128,7 +128,7 @@ I have two previous projects where I explored similar ideas:
 
 Even earlier than that, my interest in source separation and demixing began with harmonic/percussive source separation:
 * [Real-Time-HPSS](https://github.com/sevagh/Real-Time-HPSS), a realtime adaptation of [Fitzgerald 2010](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1078&context=argcon)'s median filtering harmonic/percussive source separation algorithm
-* [Zen](https://github.com/sevagh/Zen), a very fast C++ CUDA implementation of HPSS
+* [Zen](https://github.com/sevagh/Zen), a fast CUDA C++ implementation of realtime and offline HPSS
 
 ## Extra
 
