@@ -146,6 +146,7 @@ def load_separator(
     model_str_or_path: str = "umxhq",
     niter: int = 1,
     residual: bool = False,
+    slicq_wiener: bool = False,
     wiener_win_len: Optional[int] = 300,
     device: Union[str, torch.device] = "cpu",
     pretrained: bool = True,
@@ -179,6 +180,7 @@ def load_separator(
             xumx_model,
             model_nsgt,
             jagged_slicq_sample,
+            stft_wiener=not slicq_wiener,
             sample_rate=enc_conf["sample_rate"],
             nb_channels=enc_conf["nb_channels"],
         ).to(device)

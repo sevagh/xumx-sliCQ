@@ -30,7 +30,8 @@ def separate_and_evaluate(
         niter=niter,
         residual=residual,
         device=device,
-        pretrained=True
+        pretrained=True,
+        slicq_wiener=args.slicq_wiener,
     )
 
     separator.freeze()
@@ -59,15 +60,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MUSDB18 Evaluation", add_help=False)
 
     parser.add_argument(
-        "--targets",
-        nargs="+",
-        default=["vocals", "drums", "bass", "other"],
-        type=str,
-        help="provide targets to be processed. \
-              If none, all available targets will be computed",
-    )
-
-    parser.add_argument(
         "--model",
         default="umxhq",
         type=str,
@@ -83,6 +75,8 @@ if __name__ == "__main__":
     parser.add_argument("--evaldir", type=str, help="Results path for museval estimates")
 
     parser.add_argument("--root", type=str, help="Path to MUSDB18")
+
+    parser.add_argument("--track", type=str, default=None, help="evaluate only this track name")
 
     parser.add_argument("--subset", type=str, default="test", help="MUSDB subset (`train`/`test`)")
 
@@ -104,6 +98,10 @@ if __name__ == "__main__":
         type=int,
         default=300,
         help="Number of frames on which to apply filtering independently",
+    )
+
+    parser.add_argument(
+        "--slicq-wiener", action="store_true", default=False, help="Apply iterative Wiener-EM on the sliCQT directly, not passing through the STFT domain (slower runtime)"
     )
 
     parser.add_argument(
@@ -166,9 +164,11 @@ if __name__ == "__main__":
 
     else:
         results = museval.EvalStore()
-        # only do 1 track
-        for track in tqdm.tqdm(mus.tracks[1:2]):
+        for track in tqdm.tqdm(mus.tracks):
             print('track: {0}'.format(track.name))
+            if args.track is not None and track.name != args.track:
+                print('not same as specified track, skipping...')
+                continue
             scores = separate_and_evaluate(
                 track,
                 model_str_or_path=args.model,
@@ -182,7 +182,9 @@ if __name__ == "__main__":
             )
             print(track, "\n", scores)
             results.add_track(scores)
-            break
+            if args.track is not None:
+                # we're done here
+                break
 
     print(results)
     method = museval.MethodStore()

@@ -107,3 +107,4 @@ Temporary Items
 scripts/src/
 
 !pretrained-model/*
+pretrained-model/*.pandas
