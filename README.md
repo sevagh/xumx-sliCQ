@@ -85,7 +85,15 @@ The configuration chosen for the xumx-sliCQ network uses the Bark scale with 262
 
 ## Training and inference
 
-The provided [conda yml file](./scripts/environment-gpu-linux-cuda11.yml) should install all the dependencies needed to train and run inference on xumx-sliCQ (using Python 3.9 with the Fedora 34 amd64 OS). xumx-sliCQ trains for 1000 epochs, like XUMX, with no early stopping patience. The best loss was -0.449, achieved at epoch 583. The [training script](./scripts/train.py) launches a tensorboard process in the background for training monitoring purposes:
+The provided [conda yml file](./scripts/environment-gpu-linux-cuda11.yml) should install all the dependencies needed to train and run inference on xumx-sliCQ (using Python 3.9 with the Fedora 34 amd64 OS):
+
+```
+sevagh:xumx-sliCQ $ conda env create -f ./scripts/environment-gpu-linux-cuda11.yml
+sevagh:xumx-sliCQ $ conda activate xumx-slicq-gpu
+(xumx-slicq-gpu) sevagh:xumx-sliCQ $
+```
+
+xumx-sliCQ trains for 1000 epochs, like XUMX, with no early stopping patience. The best loss was -0.449, achieved at epoch 583. The [training script](./scripts/train.py) launches a tensorboard process in the background for training monitoring purposes:
 
 ![tboard_loss](./docs/tensorboard_loss.png)
 
