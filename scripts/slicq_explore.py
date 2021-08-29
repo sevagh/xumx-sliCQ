@@ -116,9 +116,9 @@ def ideal_mixphase(track, fwd, bwd, cnorm, device):
     for name, source in track.sources.items():
         source_mag = P[name]
 
-        Yj = [None]*len(model)
-        for i, model_block in enumerate(model):
-            Yj[i] = phasemix_sep(model_block, source_mag[i])
+        #Yj = [None]*len(model)
+        #for i, model_block in enumerate(model):
+        Yj = phasemix_sep(model, source_mag)
 
         # invert to time domain
         target_estimate = bwd(Yj, N)
@@ -270,6 +270,8 @@ def optimize_many(f, params, n_iter, per_target):
                 
                 curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
                 tot = (curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4
+                # hack to maximize negative score
+                #tot *= -1
 
                 params_tup = (scale, bins, fmin, gamma, sllen)
 
