@@ -131,8 +131,8 @@ This published version is actually not the highest scoring xumx/umx-sliCQ varian
 ## History
 
 I have two previous projects where I explored similar ideas:
-* [Music-Separation-TF](https://github.com/sevagh/Music-Separation-TF), where I explored the MATLAB Wavelet Toolbox CQT (which is based on [the NSGT](https://www.mathworks.com/help/wavelet/ref/cqt.html)) and other time-frequency resolution ideas in harmonic/percussive/vocal source separation
-* [MiXiN](https://github.com/sevagh/MiXiN), an early prototype deep learning model for music source separation based on [Grais and Plumbley 2017](https://arxiv.org/abs/1703.08019)'s Convolutional Denoising Autoencoder architecture, the reference [Python NSGT](https://github.com/grrrr/nsgt) library, Keras, and Tensorflow
+* [Music-Separation-TF](https://github.com/sevagh/Music-Separation-TF), where I explored the MATLAB Wavelet Toolbox CQT (which is based on the [NSGT](https://www.mathworks.com/help/wavelet/ref/cqt.html)) and other time-frequency resolution ideas in harmonic/percussive/vocal source separation
+* [MiXiN](https://github.com/sevagh/MiXiN), an early prototype deep learning model for music source separation based on [Grais and Plumbley 2017](https://arxiv.org/abs/1703.08019)'s Convolutional Denoising Autoencoder architecture, the [reference Python NSGT library](https://github.com/grrrr/nsgt), Keras, and Tensorflow
 
 Even earlier than that, my interest in source separation and demixing began with harmonic/percussive source separation:
 * [Real-Time-HPSS](https://github.com/sevagh/Real-Time-HPSS), a realtime adaptation of [Fitzgerald 2010](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1078&context=argcon)'s median filtering harmonic/percussive source separation algorithm
