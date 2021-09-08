@@ -7,7 +7,7 @@ The output of the ragged (or jagged) sliCQ transform of an audio waveform is a l
 This code block shows the shape and dtype of the sliCQ transform:
 
 ```
-(nsgt-pytorch) sevagh:nsgt $ python examples/ragged_vs_matrix.py ./mestis.wav --scale bark --bins 262 --fmin 32.9 --fmax 22050 --sllen 18060 --trlen 4514
+(nsgt-pytorch) sevagh:nsgt $ python examples/ragged_vs_matrix.py ./mestis.wav --scale bark --bins 262 --fmin 32.9 --fmax 22050 --sllen 18060 --trlen 4516
 NSGT-sliCQ jagged shape:
         block 0, f 0: torch.Size([52, 2, 1, 28])
         block 1, f 1: torch.Size([52, 2, 86, 16])

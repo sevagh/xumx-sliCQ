@@ -87,6 +87,8 @@ class NSGTBase(nn.Module):
         trlen = trlen + -trlen % 2 # make trlen divisible by 2
         self.trlen = trlen
 
+        print(f'sllen, trlen: {self.sllen}, {self.trlen}')
+
         self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=False, multichannel=True, device=device)
         self.M = self.nsgt.ncoefs
         self.fs = fs
