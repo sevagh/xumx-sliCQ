@@ -76,15 +76,13 @@ class NSGTBase(nn.Module):
         else:
             raise ValueError(f'unsupported frequency scale {scale}')
 
-        min_sllen = self.scl.suggested_sllen(fs)
+        min_sllen, trlen = self.scl.suggested_sllen_trlen(fs)
 
         self.sllen = sllen if sllen is not None else min_sllen
 
         if self.sllen < min_sllen:
             warnings.warn(f"slice length is too short for desired frequency scale, need {min_sllen}")
 
-        trlen = self.sllen//4
-        trlen = trlen + -trlen % 2 # make trlen divisible by 2
         self.trlen = trlen
 
         print(f'sllen, trlen: {self.sllen}, {self.trlen}')

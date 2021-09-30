@@ -35,9 +35,32 @@ from .fscale import OctScale
 from .reblock import reblock
 
 
-# one of the more expensive functions (32/400)
-#@profile
-def arrange(cseq, fwd, device="cuda"):
+def overlap_add_slicq(slicq, flatten=False):
+    # proper 50% overlap-add
+    if not flatten:
+        nb_samples, nb_slices, nb_channels, nb_f_bins, nb_m_bins = slicq.shape
+
+        window = nb_m_bins
+        hop = window//2 # 50% overlap window
+
+        ncoefs = nb_slices*nb_m_bins//2 + hop
+        out = torch.zeros((nb_samples, nb_channels, nb_f_bins, ncoefs), dtype=slicq.dtype, device=slicq.device)
+
+        ptr = 0
+
+        for i in range(nb_slices):
+            out[:, :, :, ptr:ptr+window] += slicq[:, i, :, :, :]
+            ptr += hop
+
+        return out
+    # flatten adjacent slices, just for demo purposes
+    else:
+        slicq = slicq.permute(0, 2, 3, 1, 4)
+        out = torch.flatten(slicq, start_dim=-2, end_dim=-1)
+        return out
+
+
+def arrange(cseq, fwd, device="cpu"):
     if type(cseq) == torch.Tensor:
         M = cseq.shape[-1]
 
@@ -73,7 +96,7 @@ def starzip(iterables):
 
 
 #@profile
-def chnmap_forward(gen, seq, device="cuda"):
+def chnmap_forward(gen, seq, device="cpu"):
     chns = starzip(seq) # returns a list of generators (one for each channel)
 
     # fuck generators, use a tensor
@@ -98,7 +121,7 @@ class NSGT_sliced(torch.nn.Module):
                  measurefft=False,
                  multithreading=False,
                  dtype=torch.float32,
-                 device="cuda"):
+                 device="cpu"):
         assert fs > 0
         assert sl_len > 0
         assert tr_area >= 0

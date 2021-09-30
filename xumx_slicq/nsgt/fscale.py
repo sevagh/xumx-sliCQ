@@ -33,7 +33,7 @@ class Scale:
         q = np.array([self.Q(b) for b in range(self.bnds)],dtype=float)
         return f,q
 
-    def suggested_sllen(self, sr):
+    def suggested_sllen_trlen(self, sr):
         f,q = self()
 
         Ls = int(np.ceil(max((q*8.*sr)/f)))
@@ -41,7 +41,12 @@ class Scale:
         # make sure its divisible by 4
         Ls = Ls + -Ls % 4
 
-        return Ls
+        sllen = Ls
+
+        trlen = sllen//4
+        trlen = trlen + -trlen % 2 # make trlen divisible by 2
+
+        return sllen, trlen
 
 
 class OctScale(Scale):
@@ -220,3 +225,30 @@ class BarkScale(Scale):
         if bnd is None:
             bnd = np.arange(self.bnds)
         return bark2hz(bnd*self.bbnd+self.bmin)
+
+
+'''
+a toy frequency scale based on powers of two
+to demonstrate the flexibility of the sliCQT
+'''
+class Pow2Scale(Scale):
+    def __init__(self, fmin, fmax, bnds, beyond=0):
+        """
+        @param fmin: minimum frequency (Hz)
+        @param fmax: maximum frequency (Hz)
+        @param bnds: number of frequency bands (int)
+        @param beyond: number of frequency bands below fmin and above fmax (int)
+        """
+        self.start = 0
+        while 2**self.start < fmin:
+            self.start += 1
+
+        Scale.__init__(self, bnds-self.start+beyond*2)
+
+        if 2**(bnds-1) >= fmax:
+            raise ValueError(f'too many frequency bands!')
+
+    def F(self, bnd=None):
+        if bnd is None:
+            bnd = np.arange(self.bnds)
+        return 2**(bnd+self.start)
