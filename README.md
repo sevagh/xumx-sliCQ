@@ -15,7 +15,7 @@ Time-frequency masking is one strategy for music source separation, where the ma
 
 Transforms with nonuniform frequency spacing, leading to varying time-frequency resolution, can better represent the tonal and transient characteristics of musical signals. [Frequency-warped transforms](http://elvera.nue.tu-berlin.de/typo3/files/1015Burred2006.pdf) such as the [constant-Q transform](https://arrow.tudublin.ie/cgi/viewcontent.cgi?article=1007&context=argart) have been used in music source separation systems to improve over the STFT.
 
-The sliCQ transform, which is the realtime version of the Nonstationary Gabor Transform (NSGT), is a spectral transform that allows for arbitrary nonlinear frequency scales with perfect inversion. The following visual comparison of sliCQ transform (xumx-sliCQ default) vs. STFT (UMX default) on the [LTFAT glockenspiel signal](https://github.com/ltfat/ltfat/blob/master/signals/gspi.wav) demonstrates the improved visual clarity of musical events:
+The sliCQ transform, which is the realtime version of the Nonstationary Gabor Transform (NSGT), is a spectral transform that allows for arbitrary nonlinear frequency scales with perfect inversion. The following visual comparison of sliCQ transform (xumx-sliCQ default) vs. STFT (UMX default) of the [LTFAT glockenspiel signal](https://github.com/ltfat/ltfat/blob/master/signals/gspi.wav) demonstrates the improved visual clarity of musical events:
 
 ![slicq_spectral](./docs/slicq_spectral.png)
 
