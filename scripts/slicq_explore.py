@@ -32,57 +32,6 @@ def _fast_sdr(track, estimates_dct, target, device):
     return sdr_target
 
 
-def stft_fwd(audio):
-    return torch.stft(audio, n_fft=4096, hop_length=1024, return_complex=True).type(torch.complex64)
-
-
-def stft_bwd(X, N):
-    return torch.istft(X, n_fft=4096, hop_length=1024, length=N)
-
-
-def ideal_mixphase_stft(track, device):
-    """
-    ideal performance of magnitude from estimated source + phase of mix
-    which is the default umx strategy for separation
-    """
-    N = track.audio.shape[0]
-    audio = torch.tensor(track.audio.T, device=device)
-
-    # unsqueeze to add (1,) batch dimension
-    X = stft_fwd(audio)
-
-    # Compute sources spectrograms
-    P = {}
-    # compute model as the sum of spectrograms
-    model = eps
-
-    # parallelize this
-    for name, source in track.sources.items():
-        # compute spectrogram of target source:
-        # magnitude of STFT
-        src_coef = torch.view_as_real(stft_fwd(torch.tensor(source.audio.T, device=device)))
- 
-        P[name] = torch.abs(torch.view_as_complex(src_coef))
-
-        # store the original, not magnitude, in the mix
-        model += src_coef
-
-    # now performs separation
-    estimates = {}
-    for name, source in track.sources.items():
-        source_mag = P[name]
-
-        Yj = phasemix_sep(model, source_mag)
-
-        # invert to time domain
-        target_estimate = stft_bwd(torch.view_as_complex(Yj), N)
-
-        # set this as the source estimate
-        estimates[name] = target_estimate
-
-    return estimates
-
-
 def ideal_mixphase(track, fwd, bwd, cnorm, device):
     """
     ideal performance of magnitude from estimated source + phase of mix
@@ -185,8 +134,6 @@ class TrackEvaluator:
 
 
 def evaluate_single(f, params):
-    #print(f'{scale} {bins} {fmin} {fmax} {gamma}')
-
     curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'] )
 
     print('bass, drums, vocals, other sdr! {0:.2f} {1:.2f} {2:.2f} {3:.2f}'.format(
@@ -402,5 +349,5 @@ if __name__ == '__main__':
 
         print(f'Parameter to evaluate:\n\t{params}')
 
-        t = TrackEvaluator(tracks, args.max_sllen, device=device)
+        t = TrackEvaluator(mus.tracks, args.max_sllen, device=device)
         evaluate_single(t.oracle, params)

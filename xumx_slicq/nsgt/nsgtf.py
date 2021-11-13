@@ -77,7 +77,6 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, matrixform=False, real=False, reduce
         ret = []
 
         for j, (mii,win_range,Lg,col) in enumerate(loopparams):
-            
             c = torch.zeros(*f_slices.shape[:2], 1, Lg, dtype=ft.dtype, device=torch.device(device))
 
             t = ft[:, :, win_range]*torch.fft.fftshift(giis[j, :Lg])
