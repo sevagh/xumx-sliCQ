@@ -70,7 +70,9 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, matrixform=False, real=False, reduce
             c[:, :, j, sl1] = t[:, :, Lg//2:]  # if mii is odd, this is of length mii-mii//2
             c[:, :, j, sl2] = t[:, :, :Lg//2]  # if mii is odd, this is of length mii//2
 
-        return ifft(c)
+        c = ifft(c)
+        # "bucketed" slicq with a list of size 1
+        return [c]
     else:
         block_ptr = -1
         bucketed_tensors = []

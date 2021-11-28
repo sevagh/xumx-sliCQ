@@ -209,10 +209,22 @@ def main():
         help="Sequence duration in seconds" "value of <=0.0 will use full/variable length",
     )
     parser.add_argument(
+        "--seq-dur-valid",
+        type=float,
+        default=-1.0,
+        help="Sequence duration for validation" "value of <=0.0 will use full/variable length",
+    )
+    parser.add_argument(
         "--bandwidth",
         type=float,
         default=16000.,
         help="network won't consider frequencies above this"
+    )
+    parser.add_argument(
+        "--matrixform",
+        action="store_true",
+        default=False,
+        help="use the matrix form of the sliCQT",
     )
     parser.add_argument(
         "--fscale",
@@ -291,6 +303,9 @@ def main():
 
     train_dataset, valid_dataset, args = data.load_datasets(parser, args)
 
+    if args.seq_dur_valid is not None and args.seq_dur_valid > 0.0:
+        valid_dataset.seq_duration = args.seq_dur_valid
+
     # create output dir if not exist
     target_path = Path(args.output)
     target_path.mkdir(parents=True, exist_ok=True)
@@ -312,7 +327,8 @@ def main():
         args.fmin,
         args.sllen,
         fs=train_dataset.sample_rate,
-        device=device
+        device=device,
+        matrixform=args.matrixform
     )
 
     nsgt, insgt = transforms.make_filterbanks(
