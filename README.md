@@ -37,9 +37,19 @@ The following boxplot (generated like [SiSec 2018](https://github.com/sigsep/sig
 
 ## Network architecture
 
-The architecture diagram of xumx-sliCQ shows how closely it resembles Open-Unmix:
+The following block diagrams show the evolution of xumx-sliCQ from UMX and X-UMX.
 
-![xumx_system](./docs/xumx_slicq_system.png)
+UMX:
+
+<img src="./docs/umx_system.png" width="75%"/>
+
+X-UMX:
+
+<img src="./docs/xumx_system.png" width="75%"/>
+
+xumx-sliCQ, single target:
+
+<img src="./docs/xumx_slicq_system.png" width="75%"/>
 
 The ragged sliCQ is stored in a matrix with zero-padding to support the Wiener EM step directly on the sliCQ transform ([adapting STFT Wiener EM to the sliCQ is discussed here](https://discourse.aicrowd.com/t/umx-iterative-wiener-expectation-maximization-for-non-stft-time-frequency-transforms/6191)). However, the execution time is slower (and native sliCQ Wiener-EM times out in the competition). Therefore, it's controlled by the flag `--slicq-wiener` in the evaluate script. See [docs/wiener_em.md](./docs/wiener_em.md) for more details.
 
@@ -83,6 +93,16 @@ Estimated Total Size (MB): 9414.64
 The parameters of the sliCQ were chosen by a 60-iteration random parameter search using the "mix-phase oracle", where the ground truth magnitude sliCQ is combined with the mix phase to get a complex sliCQ. The result is inverted to the time domain to get the SDR of the waveform. 60 iterations are enough to give a statistically good combination of parameters in a large problem space according to [Bergstra and Bengio 2012](https://www.jmlr.org/papers/volume13/bergstra12a/bergstra12a.pdf). The parameter search is described in more detail in [docs/slicq_params.md](./docs/slicq_params.md).
 
 The configuration chosen for the xumx-sliCQ network uses the Bark scale with 262 bins, 32.9 - 22050 Hz, and slice and transition lengths of 18060 and 4516 samples (409 ms and 102 ms respectively). For a detailed look at the shape and nature of the sliCQ transform, as well as its noninvertible 50% overlap, look at [docs/slicq_shape.md](./docs/slicq_shape.md).
+
+### Alternative architectures
+
+There are flags to the training script to change the model to two other potentially interesting variants.
+
+The `--matrixform` flag uses a zero-padded matrix form of the ragged sliCQT, and applies a single set of neural layers to the one matrix instead of multiple separate networks. This is more similar to an STFT-based model, but it is computationally wasteful (a lot of padded zeros), and doesn't perform too well (probably because the zeros are padded per frequency bin, which presents the network with padded zeros and meaningful coefficients mixed together).
+
+![zeropadslicq](./docs/slicq_zeropad.png)
+
+The `--umx-bilstm` flag uses a network architecture closer to the original BiLSTM of UMX. There is no encoder and decoder layer. The use of the encoder/decoder in the original UMX is to reduce the 2049 frequency bins of the STFT with a window size of 4096 to a more meaningful set of 512 frequency bins, before passing it to the BiLSTM. With the sliCQT, there is a much smaller total number of frequency bins, making the encoder/decoder step unnecessary. We pass the frequency bins directly into the BiLSTM. This uses a lot of resources and is slower than the CNN architecture, and I never trained it fully. It's just a curiosity.
 
 ## Training and inference
 
