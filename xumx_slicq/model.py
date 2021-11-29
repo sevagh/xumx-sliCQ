@@ -69,6 +69,11 @@ class OpenUnmixTimeBucketBiLSTM(nn.Module):
 
         self.bn2 = BatchNorm1d(hidden_size)
 
+        if input_mean is not None:
+            input_mean = torch.from_numpy(-input_mean).float()
+        else:
+            input_mean = torch.zeros(nb_f_bins)
+
         if input_scale is not None:
             input_scale = torch.from_numpy(1.0 / input_scale).float()
         else:
