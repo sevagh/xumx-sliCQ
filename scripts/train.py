@@ -221,6 +221,12 @@ def main():
         help="network won't consider frequencies above this"
     )
     parser.add_argument(
+        "--umx-bilstm",
+        action="store_true",
+        default=False,
+        help="use the original umx bi-lstm architecture",
+    )
+    parser.add_argument(
         "--matrixform",
         action="store_true",
         default=False,
@@ -367,6 +373,7 @@ def main():
     unmix = model.OpenUnmix(
         jagged_slicq,
         max_bin=nsgt_base.max_bins(args.bandwidth),
+        umx_bilstm=args.umx_bilstm,
         input_means=scaler_mean,
         input_scales=scaler_std,
     ).to(device)
