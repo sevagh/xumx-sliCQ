@@ -35,6 +35,31 @@ The following boxplot (generated like [SiSec 2018](https://github.com/sigsep/sig
 
 ![boxplot_full](./docs/boxplot_full.png)
 
+## Citation
+
+My paper on xumx-sliCQ, "Music demixing with the sliCQ transform," was originally published at [MDX21](https://mdx-workshop.github.io) @ ISMIR 2021 ([pdf](https://mdx-workshop.github.io/proceedings/hanssian.pdf))
+
+```
+@inproceedings{xumxslicqmdx21,
+        title={Music demixing with the sliCQ transform},
+        author={Hanssian, Sevag},
+        booktitle={MDX21 workshop at ISMIR 2021},
+        year={2021}}
+```
+
+There is a slightly newer and better version on arXiv, where I also included a definition on music demixing or unmixing as opposed to to music source separation:
+
+>Music source separation is the task of extracting an estimate of one or more isolated sources or instruments (for example, drums or vocals) from musical audio. The task of music demixing or unmixing considers the case where the musical audio is separated into an estimate of all of its constituent sources that can be summed back to the original mixture.
+
+```
+@article{xumxslicqarxiv,
+        title={Music demixing with the sliCQ transform},
+        author={Hanssian, Sevag},
+        journal={arXiv preprint arXiv:2112.05509},
+        url={https://arxiv.org/abs/2112.05509},
+        year={2021}}
+```
+
 ## Network architecture
 
 The following block diagrams show the evolution of xumx-sliCQ from UMX and X-UMX.
