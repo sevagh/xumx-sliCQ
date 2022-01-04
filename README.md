@@ -121,13 +121,7 @@ The configuration chosen for the xumx-sliCQ network uses the Bark scale with 262
 
 ### Alternative architectures
 
-There are flags to the training script to change the model to two other potentially interesting variants.
-
-The `--matrixform` flag uses a zero-padded matrix form of the ragged sliCQT, and applies a single set of neural layers to the one matrix instead of multiple separate networks. This is more similar to an STFT-based model, but it is computationally wasteful (a lot of padded zeros), and doesn't perform too well (probably because the zeros are padded per frequency bin, which presents the network with padded zeros and meaningful coefficients mixed together).
-
-![zeropadslicq](./docs/slicq_zeropad.png)
-
-The `--umx-bilstm` flag uses a network architecture closer to the original BiLSTM of UMX. There is no encoder and decoder layer. The use of the encoder/decoder in the original UMX is to reduce the 2049 frequency bins of the STFT with a window size of 4096 to a more meaningful set of 512 frequency bins, before passing it to the BiLSTM. With the sliCQT, there is a much smaller total number of frequency bins, making the encoder/decoder step unnecessary. We pass the frequency bins directly into the BiLSTM. This uses a lot of resources and is slower than the CNN architecture, and I never trained it fully. It's just a curiosity.
+There is a flag in the training script, `--umx-bilstm`, to use an architecture closer to the original Bi-LSTM of UMX. There is no encoder and decoder layer. The use of the encoder/decoder in the original UMX is to reduce the 2049 frequency bins of the STFT with a window size of 4096 to a more meaningful set of 512 frequency bins, before passing it to the Bi-LSTM. With the sliCQT, there is a much smaller total number of frequency bins, making the encoder/decoder step unnecessary. We pass the frequency bins directly into the Bi-LSTM. This uses a lot of resources and is slower than the CNN architecture, and I never trained it fully. It's just a curiosity.
 
 ## Training and inference
 

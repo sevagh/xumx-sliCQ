@@ -69,6 +69,9 @@ class OpenUnmixTimeBucketBiLSTM(nn.Module):
 
         self.bn2 = BatchNorm1d(hidden_size)
 
+        self.growth_layer = ConvTranspose2d(nb_channels, nb_channels, (1, 3), stride=(1, 2), bias=True)
+        self.growth_act = Sigmoid()
+
         if input_mean is not None:
             input_mean = torch.from_numpy(-input_mean).float()
         else:
@@ -95,16 +98,16 @@ class OpenUnmixTimeBucketBiLSTM(nn.Module):
 
         x_shape = x.shape
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
+        nb_t_frames_deola = nb_slices*nb_t_bins
 
-        # stack slice with batch
-        x = x.reshape(nb_samples*nb_slices, nb_channels, nb_f_bins, nb_t_bins)
+        x = overlap_add_slicq(x)
 
         # to (nb_frames*nb_samples, nb_channels*nb_bins)
         # and encode to (nb_frames*nb_samples, hidden_size)
         x = x.reshape(-1, nb_channels * self.nb_bins)
         # normalize every instance in a batch
         x = self.bn1(x)
-        x = x.reshape(nb_t_bins, nb_samples*nb_slices, self.hidden_size)
+        x = x.reshape(-1, nb_samples, self.hidden_size)
         # squash range ot [-1, 1]
         x = torch.tanh(x)
 
@@ -117,12 +120,23 @@ class OpenUnmixTimeBucketBiLSTM(nn.Module):
         # first dense stage + batch norm
         x = self.fc2(x.reshape(-1, x.shape[-1]))
         x = self.bn2(x)
+        x = F.relu(x)
+
+        # reshape to grow
+        x = x.reshape(nb_samples, nb_channels, self.nb_bins, -1)
+
+        # growth layer
+        x = self.growth_layer(x)
+        x = self.growth_act(x)
+
+        # crop
+        x = x[:, :, :, : nb_t_frames_deola]
 
         # reshape back to original dim
         x = x.reshape(x_shape)
 
         # since our output is non-negative, we can apply RELU
-        x = F.relu(x) * mix
+        x = x * mix
         # permute back to (nb_samples, nb_channels, nb_bins, nb_frames)
         return x
 

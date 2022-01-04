@@ -227,12 +227,6 @@ def main():
         help="use the original umx bi-lstm architecture",
     )
     parser.add_argument(
-        "--matrixform",
-        action="store_true",
-        default=False,
-        help="use the matrix form of the sliCQT",
-    )
-    parser.add_argument(
         "--fscale",
         choices=('bark','mel', 'cqlog', 'vqlog', 'oct'),
         default='bark',
@@ -334,7 +328,6 @@ def main():
         args.sllen,
         fs=train_dataset.sample_rate,
         device=device,
-        matrixform=args.matrixform
     )
 
     nsgt, insgt = transforms.make_filterbanks(
