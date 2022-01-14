@@ -170,7 +170,7 @@ def load_datasets(
         help="supply fixed start (in s) of song (<0.0 = random start)",
     )
     parser.add_argument("--samples-per-track", type=int, default=64)
-    parser.add_argument("--source-augmentations", type=str, nargs="+")
+    parser.add_argument("--source-augmentations", type=str, default=["gain", "channelswap"], nargs="+")
 
     args = parser.parse_args()
     dataset_kwargs = {

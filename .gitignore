@@ -106,5 +106,6 @@ Temporary Items
 
 scripts/src/
 
+logdir
 !pretrained-model/*
 pretrained-model/*.pandas

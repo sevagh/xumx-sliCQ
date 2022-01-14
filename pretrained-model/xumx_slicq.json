@@ -28,11 +28,6 @@
         "samples_per_track": 64,
         "seed": 42,
         "seq_dur": 1.0,
-        "sllen": 18060,
-        "source_augmentations": [
-            "gain",
-            "channelswap"
-        ],
         "weight_decay": 1e-05
     },
     "best_epoch": 583,

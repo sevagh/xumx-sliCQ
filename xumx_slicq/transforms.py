@@ -55,7 +55,7 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
 
 
 class NSGTBase(nn.Module):
-    def __init__(self, scale, fbins, fmin, sllen=None, fs=44100, device="cuda", gamma=25., matrixform=False):
+    def __init__(self, scale, fbins, fmin, fs=44100, device="cuda", gamma=25., matrixform=False):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
         self.fmin = fmin
@@ -76,15 +76,7 @@ class NSGTBase(nn.Module):
         else:
             raise ValueError(f'unsupported frequency scale {scale}')
 
-        min_sllen, trlen = self.scl.suggested_sllen_trlen(fs)
-
-        self.sllen = sllen if sllen is not None else min_sllen
-
-        if self.sllen < min_sllen:
-            warnings.warn(f"slice length is too short for desired frequency scale, need {min_sllen}")
-
-        self.trlen = trlen
-
+        self.sllen, self.trlen = self.scl.suggested_sllen_trlen(fs)
         print(f'sllen, trlen: {self.sllen}, {self.trlen}')
 
         self.nsgt = NSGT_sliced(self.scl, self.sllen, self.trlen, fs, real=True, matrixform=matrixform, multichannel=True, device=device)

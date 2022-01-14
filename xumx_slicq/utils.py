@@ -114,7 +114,6 @@ def load_target_models(model_str_or_path="umxhq", device="cpu", pretrained=True,
         results["args"]["fscale"],
         results["args"]["fbins"],
         results["args"]["fmin"],
-        results["args"]["sllen"],
         fs=sample_rate,
         device=device
     )

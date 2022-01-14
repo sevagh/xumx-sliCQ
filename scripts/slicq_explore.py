@@ -84,7 +84,7 @@ class TrackEvaluator:
         self.max_sllen = max_sllen
         self.device = device
 
-    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25, sllen=None):
+    def oracle(self, scale='cqlog', fmin=20.0, bins=12, gamma=25):
         bins = int(bins)
 
         med_sdrs_bass = []
@@ -92,7 +92,7 @@ class TrackEvaluator:
         med_sdrs_vocals = []
         med_sdrs_other = []
 
-        n = NSGTBase(scale, bins, fmin, sllen=None, device=self.device, gamma=gamma)
+        n = NSGTBase(scale, bins, fmin, device=self.device, gamma=gamma)
 
         # skip too big transforms
         if n.sllen > self.max_sllen:
@@ -101,7 +101,6 @@ class TrackEvaluator:
                 float('-inf'),
                 float('-inf'),
                 float('-inf'),
-                n.sllen
             )
 
         nsgt, insgt = make_filterbanks(n)
@@ -129,12 +128,11 @@ class TrackEvaluator:
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_drums])),
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_vocals])),
             torch.mean(torch.cat([torch.unsqueeze(med_sdr, dim=0) for med_sdr in med_sdrs_other])),
-            n.sllen
         )
 
 
 def evaluate_single(f, params):
-    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'], sllen=params['sllen'] )
+    curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other = f(scale=params['scale'], fmin=params['fmin'], bins=params['bins'], gamma=params['gamma'])
 
     print('bass, drums, vocals, other sdr! {0:.2f} {1:.2f} {2:.2f} {3:.2f}'.format(
         curr_score_bass,
@@ -170,9 +168,9 @@ def optimize_many(f, params, n_iter, per_target):
                 fmin = random.choice(fmins)
                 gamma = random.choice(gammas)
                 
-                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
 
-                params_tup = (scale, bins, fmin, gamma, sllen)
+                params_tup = (scale, bins, fmin, gamma)
 
                 if curr_score_bass == curr_score_drums and curr_score_drums == curr_score_vocals and curr_score_vocals == curr_score_other and curr_score_other == float('-inf'):
                     # sllen not supported
@@ -215,12 +213,12 @@ def optimize_many(f, params, n_iter, per_target):
                 fmin = random.choice(fmins)
                 gamma = random.choice(gammas)
                 
-                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other, sllen = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
+                curr_score_bass, curr_score_drums, curr_score_vocals, curr_score_other = f(scale=scale, fmin=fmin, bins=bins, gamma=gamma)
                 tot = (curr_score_bass+curr_score_drums+curr_score_vocals+curr_score_other)/4
                 # hack to maximize negative score
                 #tot *= -1
 
-                params_tup = (scale, bins, fmin, gamma, sllen)
+                params_tup = (scale, bins, fmin, gamma)
 
                 if curr_score_bass == curr_score_drums and curr_score_drums == curr_score_vocals and curr_score_vocals == curr_score_other and curr_score_other == float('-inf'):
                     # sllen not supported
@@ -239,6 +237,12 @@ def optimize_many(f, params, n_iter, per_target):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Search NSGT configs for best ideal mask'
+    )
+    parser.add_argument(
+        '--root',
+        type=str,
+        default=None,
+        help='path to MUSDB18-HQ root'
     )
     parser.add_argument(
         '--bins',
@@ -292,12 +296,6 @@ if __name__ == '__main__':
         help='maximum sllen above which to skip iterations'
     )
     parser.add_argument(
-        '--sllen',
-        type=int,
-        default=8192,
-        help='sllen to use'
-    )
-    parser.add_argument(
         '--single',
         action='store_true',
         help='evaluate single nsgt instead of randomized param search'
@@ -319,7 +317,7 @@ if __name__ == '__main__':
         device = args.device
 
     # initiate musdb
-    mus = musdb.DB(subsets='train', split='valid', is_wav=True)
+    mus = musdb.DB(root=args.root, subsets='train', split='valid', is_wav=True)
 
     if not args.single:
         scales = args.fscale.split(',')
@@ -344,7 +342,6 @@ if __name__ == '__main__':
             'bins': int(args.bins),
             'fmin': float(args.fmins),
             'gamma': float(args.gammas),
-            'sllen': int(args.sllen),
         }
 
         print(f'Parameter to evaluate:\n\t{params}')

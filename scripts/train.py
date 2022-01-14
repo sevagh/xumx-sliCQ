@@ -233,12 +233,6 @@ def main():
         help="frequency scale for sliCQ-NSGT",
     )
     parser.add_argument(
-        "--sllen",
-        type=int,
-        default=18060,
-        help="slicq slice length",
-    )
-    parser.add_argument(
         "--fbins",
         type=int,
         default=262,
@@ -325,7 +319,6 @@ def main():
         args.fscale,
         args.fbins,
         args.fmin,
-        args.sllen,
         fs=train_dataset.sample_rate,
         device=device,
     )
@@ -419,7 +412,7 @@ def main():
         best_epoch = 0
 
     print('Starting Tensorboard')
-    tboard_proc = subprocess.Popen(["tensorboard", "--logdir", tboard_path])
+    tboard_proc = subprocess.Popen(["tensorboard", "--logdir", tboard_path, "--host", "0.0.0.0"])
     tboard_pid = tboard_proc.pid
 
     def kill_tboard():
