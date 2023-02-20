@@ -17,8 +17,11 @@ docker run --rm -it \
 
 ## Goals
 
+* merge repos
+    * Dockerfile.slim
+    * training vs. public README
 
-*effort 1: training repo*
+*effort 1: training*
 * xumx-sliCQ-V2-training: this repo; 28MB v1-inspired model
 * New training
     * Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
@@ -30,14 +33,11 @@ docker run --rm -it \
 * README to describe all the cool things (and not so cool things)
     nvcr, training, blending, <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>
 
-*effort 2: inference/public repo*
+*effort 2: inference/public*
     * use warp + potential C++ kernels (C++ for C++ sake is a bad idea, remember) for packed-nsgt
         * must be compatible with regular nsgt!
     * TensorRT script; load + use packed-nsgt with realtime inputs (and offline, same script)
     * provide measurements/SDR docs for it all
-
-    *public repo*
-    * xumx-sliCQ-V2 (for public) with cut down code: single best model + Wiener
-        1. Inference = '__main__.py'; ensure it works; CPU or GPU inference with outputting files (for demos etc.) is fine
-        1. Start working on README, paper materials
-        1. create slim Dockerfile for pytorch runtime inference
+1. Inference = '__main__.py'; ensure it works; CPU or GPU inference with outputting files (for demos etc.) is fine
+1. Start working on README, paper materials
+1. create slim Dockerfile for pytorch runtime inference
