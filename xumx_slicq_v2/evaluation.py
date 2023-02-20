@@ -5,7 +5,6 @@ import gc
 from typing import Optional, Union
 import numpy as np
 import museval
-from museval.metrics import clear_cupy_cache, disable_cupy
 import musdb
 import torch
 import tqdm
@@ -27,6 +26,7 @@ def separate_and_evaluate(
 
     print("applying separation")
     estimates = separator(audio)
+
     estimates = separator.to_dict(estimates)
 
     for key in estimates:
@@ -39,6 +39,7 @@ def separate_and_evaluate(
         estimates,
     )
 
+    gc.collect()
     return bss_scores
 
 
@@ -56,17 +57,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--chunk-size", type=int, default=2621440, help="inference chunk size"
     )
-    parser.add_argument(
-        "--cuda", action="store_true", default=False, help="use cuda for evaluation"
-    )
 
     args = parser.parse_args()
 
-    if args.cuda:
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-        disable_cupy
+    device = torch.device("cpu")
 
     mus = musdb.DB(
         root="/MUSDB18-HQ",
@@ -99,12 +93,6 @@ if __name__ == "__main__":
             track,
             device=device,
         )
-
-        # some memory-saving options, cause nothing is worse than crashing
-        gc.collect()
-        if args.cuda:
-            clear_cupy_cache()
-            torch.cuda.empty_cache()
 
         print(track, "\n", track_scores)
         results.add_track(track_scores)

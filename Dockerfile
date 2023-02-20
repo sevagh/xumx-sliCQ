@@ -28,12 +28,6 @@ RUN python -m pip install --upgrade pip
 
 COPY --from=devel /wheelhouse /wheelhouse
 
-# install my cupy fork of museval for faster bss
-RUN python -m pip install simplejson pandas numpy scipy simplejson jsonschema cupy-cuda118 
-RUN git clone https://github.com/sevagh/sigsep-mus-eval -b feat/cupy-accel /sigsep-mus-eval
-WORKDIR /sigsep-mus-eval
-RUN python -m pip install --no-deps -e .
-
 # install xumx-slicq-v2 from source to get its dependencies
 COPY . /xumx-sliCQ-V2
 WORKDIR /xumx-sliCQ-V2

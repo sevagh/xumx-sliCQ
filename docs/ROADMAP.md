@@ -28,16 +28,13 @@ docker run --rm -it \
     * looking good and we have a complex-valued loss baseline...
     4.2 dB median SDR
     * complex loss, gradients, computational graph in blog post
+    * TensorRT save script (ala blendmodels)
     * tag as "v1.0.0a"
-* TensorRT save script (ala blendmodels)
 * README to describe all the cool things (and not so cool things)
     nvcr, training, blending, <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>
 
 *effort 2: inference/public*
-    * use warp + potential C++ kernels (C++ for C++ sake is a bad idea, remember) for packed-nsgt
-        * must be compatible with regular nsgt!
-    * TensorRT script; load + use packed-nsgt with realtime inputs (and offline, same script)
-    * provide measurements/SDR docs for it all
+    * option for TensorRT model
 1. Inference = '__main__.py'; ensure it works; CPU or GPU inference with outputting files (for demos etc.) is fine
 1. Start working on README, paper materials
 1. create slim Dockerfile for pytorch runtime inference
