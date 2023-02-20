@@ -1,0 +1,34 @@
+Zeno - Signs
+
+ok:
+
+vocals          ==> SDR:   4.234  SIR:   9.423  ISR:   6.997  SAR:   5.622
+drums           ==> SDR:   6.430  SIR:  10.698  ISR:  11.301  SAR:   8.361
+bass            ==> SDR:   1.840  SIR:   3.136  ISR:   5.310  SAR:   3.184
+other           ==> SDR:   4.424  SIR:   5.383  ISR:   8.935  SAR:   7.489
+
+
+worse:
+
+vocals          ==> SDR:   4.212  SIR:   7.719  ISR:   7.853  SAR:   6.071
+drums           ==> SDR:   6.419  SIR:  10.641  ISR:  11.381  SAR:   8.616
+bass            ==> SDR:   1.892  SIR:   3.090  ISR:   5.424  SAR:   3.252
+other           ==> SDR:   4.125  SIR:   5.622  ISR:   7.691  SAR:   6.946
+
+now we getting somewhere:
+
+Aggregated Scores (median over frames, median over tracks)
+vocals          ==> SDR:   4.401  SIR:   7.448  ISR:   8.626  SAR:   6.663
+drums           ==> SDR:   6.434  SIR:  10.580  ISR:  11.622  SAR:   8.477
+bass            ==> SDR:   1.977  SIR:   3.535  ISR:   5.153  SAR:   3.474
+other           ==> SDR:   4.257  SIR:   5.986  ISR:   7.548  SAR:   6.847
+
+how about now (100 epochs, 0.0404):
+
+Aggregated Scores (median over frames, median over tracks)
+vocals          ==> SDR:   4.444  SIR:   9.996  ISR:   7.289  SAR:   5.496
+drums           ==> SDR:   6.624  SIR:  11.053  ISR:  11.465  SAR:   8.447
+bass            ==> SDR:   1.993  SIR:   3.225  ISR:   5.367  SAR:   3.436
+other           ==> SDR:   4.343  SIR:   5.556  ISR:   8.958  SAR:   7.267
+
+5 hours for 100 epochs; 400 epochs in 15 hours, so by tomorrow morning peak performance

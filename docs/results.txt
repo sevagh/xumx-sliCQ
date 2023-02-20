@@ -1,0 +1,80 @@
+model: complex-MSE-wiener-full-bw-v1: 4.242 dB!!
+	loss: 0.0395!
+	28MB of weights, built-in wiener-EM... please be good
+	vocals          ==> SDR:   4.737  SIR:   6.868  ISR:   8.105  SAR:   4.379
+	drums           ==> SDR:   4.644  SIR:   7.501  ISR:   8.965  SAR:   4.831
+	bass            ==> SDR:   4.341  SIR:   8.689  ISR:   5.032  SAR:   4.867
+	other           ==> SDR:   3.246  SIR:   1.037  ISR:   7.898  SAR:   4.297
+
+model: MSE-full-bw, 1: 4.216 dB (loss: 0.07634352669119834)
+        vocals          ==> SDR:   4.724  SIR:   8.010  ISR:   9.741  SAR:   3.161
+        drums           ==> SDR:   4.888  SIR:   8.803  ISR:  10.099  SAR:   4.669
+        bass            ==> SDR:   4.101  SIR:   9.413  ISR:   5.244  SAR:   3.236
+        other           ==> SDR:   3.151  SIR:   1.757  ISR:   8.474  SAR:   3.549
+
+model: MSE-full-bw, 2: 4.216 dB
+        vocals          ==> SDR:   4.765  SIR:   8.397  ISR:   9.803  SAR:   3.252
+        drums           ==> SDR:   4.804  SIR:   9.004  ISR:  10.267  SAR:   4.527
+        bass            ==> SDR:   4.220  SIR:   9.353  ISR:   5.971  SAR:   3.252
+        other           ==> SDR:   3.075  SIR:   2.031  ISR:   8.503  SAR:   3.129
+
+model: MSE, 1; 4.09825 dB SDRtot (loss: 0.07773791626095772)
+        vocals          ==> SDR:   4.376  SIR:   7.965  ISR:   9.191  SAR:   3.218
+        drums           ==> SDR:   4.827  SIR:   8.836  ISR:  10.144  SAR:   4.527
+        bass            ==> SDR:   4.082  SIR:   8.673  ISR:   4.873  SAR:   3.262
+        other           ==> SDR:   3.108  SIR:   1.728  ISR:   8.951  SAR:   3.781
+
+model: MSE, 2; 4.097 dB SDRtot
+        vocals          ==> SDR:   4.336  SIR:   8.297  ISR:   9.251  SAR:   3.213
+        drums           ==> SDR:   4.652  SIR:   9.125  ISR:  10.314  SAR:   4.284
+        bass            ==> SDR:   4.307  SIR:   9.678  ISR:   5.156  SAR:   2.996
+        other           ==> SDR:   3.093  SIR:   2.580  ISR:   9.143  SAR:   3.746
+
+model: MSE-SDR, 1; 4.06 dB SDRtot
+        vocals          ==> SDR:   4.356  SIR:   8.277  ISR:   9.603  SAR:   3.188
+        drums           ==> SDR:   4.676  SIR:   8.740  ISR:   9.743  SAR:   4.445
+        bass            ==> SDR:   3.926  SIR:   9.482  ISR:   4.865  SAR:   2.997
+        other           ==> SDR:   3.282  SIR:   1.766  ISR:   8.914  SAR:   3.788
+
+model: MSE-SDR, 2; 4.07775 dB SDRtot
+        vocals          ==> SDR:   4.360  SIR:   8.252  ISR:   9.622  SAR:   3.243
+        drums           ==> SDR:   4.748  SIR:   8.777  ISR:   9.990  SAR:   4.503
+        bass            ==> SDR:   4.034  SIR:   9.576  ISR:   5.109  SAR:   2.892
+        other           ==> SDR:   3.169  SIR:   2.371  ISR:   8.999  SAR:   3.770
+
+model: blend, 4; 4.164 dB SDRtot
+        Aggregated Scores (median over frames, median over tracks)
+        vocals          ==> SDR:   4.324  SIR:   8.257  ISR:   9.199  SAR:   3.207
+        drums           ==> SDR:   4.748  SIR:   8.765  ISR:   9.708  SAR:   4.265
+        bass            ==> SDR:   4.293  SIR:   9.341  ISR:   5.127  SAR:   3.102
+        other           ==> SDR:   3.292  SIR:   1.708  ISR:   8.842  SAR:   3.789
+
+model: blend, 1; 
+        Aggregated Scores (median over frames, median over tracks)
+        vocals          ==> SDR:   4.324  SIR:   8.257  ISR:   9.204  SAR:   3.207
+        drums           ==> SDR:   4.748  SIR:   8.765  ISR:   9.708  SAR:   4.265
+        bass            ==> SDR:   4.017  SIR:   9.584  ISR:   4.726  SAR:   3.277
+        other           ==> SDR:   3.292  SIR:   1.708  ISR:   8.842  SAR:   3.789
+
+model: blend, 2; 
+        Aggregated Scores (median over frames, median over tracks)
+        vocals          ==> SDR:   4.360  SIR:   8.327  ISR:   9.340  SAR:   3.180
+        drums           ==> SDR:   4.656  SIR:   8.802  ISR:  10.114  SAR:   4.284
+        bass            ==> SDR:   4.293  SIR:   9.614  ISR:   5.127  SAR:   3.238
+        other           ==> SDR:   3.132  SIR:   2.211  ISR:   9.022  SAR:   3.708
+
+best drum: MSE 1 (by 0.1 SDR)
+best bass: MSE 2 (by 0.3 SDR)
+best voca: MSE 1 (most are identical)
+best othe: SDR 1 (by 0.3 SDR)
+
+therefore:
+        blend other from SDR model, MSE drum bass vocals
+        try slicqt wiener first, STFT wiener second? strategy
+
+config 4: bass from blend-2, other 3 from blend-1 -
+        ests1 = wiener_stft(phasemix_sep(umx))
+        ests2 = wiener_slicqt(umx)
+
+        ests = ests1.clone()
+        ests[bass_idx] = ests2[bass_idx]
