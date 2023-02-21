@@ -21,11 +21,13 @@ docker run --rm -it \
     * Dockerfile.slim
     * training vs. public README
 
+xumx-slicq-v2 = rich tensorrt experience
+xumx-slicq-v2-slim = dockerhub inference only
+
 *effort 1: training*
 * xumx-sliCQ-V2-training: this repo; 28MB v1-inspired model
-* New training
-    * Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
-    * looking good and we have a complex-valued loss baseline...
+* Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
+* looking good and we have a complex-valued loss baseline... 4.2 dB median SDR
     4.2 dB median SDR
     * complex loss, gradients, computational graph in blog post
     * TensorRT save script (ala blendmodels)

@@ -32,7 +32,7 @@ def separate_and_evaluate(
     for key in estimates:
         estimates[key] = estimates[key][0].detach().cpu().numpy().T
 
-    print("using cupy-enhanced museval for fast bss...")
+    print("evaluating bss...")
 
     bss_scores = museval.eval_mus_track(
         track,
@@ -49,6 +49,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--track", type=str, default=None, help="evaluate only this track name"
+    )
+
+    parser.add_argument(
+        "--model-path", type=str, default=None, help="custom model path"
     )
 
     parser.add_argument(
@@ -73,6 +77,7 @@ if __name__ == "__main__":
     separator = Separator.load(
         chunk_size=args.chunk_size,
         device=device,
+        model_path=args.model_path,
     )
 
     tracks = mus.tracks
