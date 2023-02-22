@@ -26,6 +26,13 @@ class Unmix(nn.Module):
     def __init__(
         self,
         jagged_slicq_sample_input,
+        hidden_size_1: int = 25,
+        hidden_size_2: int = 55,
+        freq_filter_small: int = 1,
+        freq_thresh_small: int = 10,
+        freq_filter_medium: int = 3,
+        freq_thresh_medium: int = 20,
+        freq_filter_large: int = 5,
         input_means=None,
         input_scales=None,
     ):
@@ -43,6 +50,13 @@ class Unmix(nn.Module):
             self.sliced_umx.append(
                 _SlicedUnmix(
                     C_block,
+                    hidden_size_1=hidden_size_1,
+                    hidden_size_2=hidden_size_2,
+                    freq_filter_small=freq_filter_small,
+                    freq_thresh_small=freq_thresh_small,
+                    freq_filter_medium=freq_filter_medium,
+                    freq_thresh_medium=freq_thresh_medium,
+                    freq_filter_large=freq_filter_large,
                     input_mean=input_mean,
                     input_scale=input_scale,
                 )
@@ -73,12 +87,16 @@ class _SlicedUnmix(nn.Module):
     def __init__(
         self,
         slicq_sample_input,
+        hidden_size_1: int = 25,
+        hidden_size_2: int = 55,
+        freq_filter_small: int = 1,
+        freq_thresh_small: int = 10,
+        freq_filter_medium: int = 3,
+        freq_thresh_medium: int = 20,
+        freq_filter_large: int = 5,
         input_mean=None,
         input_scale=None,
     ):
-        hidden_size_1 = 25
-        hidden_size_2 = 55
-
         super(_SlicedUnmix, self).__init__()
 
         (
@@ -89,12 +107,12 @@ class _SlicedUnmix(nn.Module):
             nb_t_bins,
         ) = slicq_sample_input.shape
 
-        if nb_f_bins < 10:
-            freq_filter = 1
-        elif nb_f_bins < 20:
-            freq_filter = 3
+        if nb_f_bins < freq_thresh_small:
+            freq_filter = freq_filter_small
+        elif nb_f_bins < freq_thresh_medium:
+            freq_filter = freq_filter_medium
         else:
-            freq_filter = 5
+            freq_filter = freq_filter_large
 
         encoder = []
         decoder = []

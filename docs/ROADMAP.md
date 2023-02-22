@@ -28,12 +28,15 @@ xumx-slicq-v2-slim = dockerhub inference only
 * xumx-sliCQ-V2-training: this repo; 28MB v1-inspired model
 * Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
 * looking good and we have a complex-valued loss baseline... 4.2 dB median SDR
-    4.2 dB median SDR
-    * complex loss, gradients, computational graph in blog post
+    * try one better arch; freq filter 1 always!
+    * now run Optuna!
+        * use SDR for validation loss in training loop; leapfrog insgt problem
+        * with best Optuna results
     * TensorRT save script (ala blendmodels)
     * tag as "v1.0.0a"
 * README to describe all the cool things (and not so cool things)
     nvcr, training, blending, <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>
+    add back spectrogram plotting code (+ overlap-add, + per-block vs. unified spectrogram)
 
 *effort 2: inference/public*
     * option for TensorRT model

@@ -20,15 +20,22 @@ setup(
         "torch>=1.13.1",
         "torchaudio>=0.13.1",
         "numpy",
-        "scikit-learn",
-        "tensorboard",
-        "torchinfo",
         "musdb==0.3.1",
         "museval==0.3.1",
         "tqdm",
         "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
     ],
-    extra_requires={
+    extras_require={
+        "training": [
+            "tensorboard",
+            "torchinfo",
+            "scikit-learn",
+        ],
+        "optuna": [
+            "auraloss",
+            "optuna",
+            "optuna-dashboard",
+        ],
         "test": [
             "pytest",
         ],

@@ -21,7 +21,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 from .data import MUSDBDataset, custom_collate
 
-from xumx_slicq_v2 import data
 from xumx_slicq_v2 import models
 from xumx_slicq_v2 import transforms
 from xumx_slicq_v2.separator import Separator
@@ -187,7 +186,7 @@ def main():
     )
     parser.add_argument(
         "--fscale",
-        choices=("bark", "mel", "cqlog", "vqlog", "oct"),
+        choices=("bark", "mel", "cqlog", "vqlog"),
         default="bark",
         help="frequency scale for sliCQ-NSGT",
     )
@@ -202,6 +201,12 @@ def main():
         type=float,
         default=32.9,
         help="min frequency for NSGT scale",
+    )
+    parser.add_argument(
+        "--fgamma",
+        type=float,
+        default=15.,
+        help="gamma for variable-Q offset",
     )
     parser.add_argument(
         "--nb-workers", type=int, default=4, help="Number of workers for dataloader."
@@ -280,6 +285,7 @@ def main():
         args.fscale,
         args.fbins,
         args.fmin,
+        fgamma=args.fgamma,
         fs=train_dataset.sample_rate,
         device=device,
     )

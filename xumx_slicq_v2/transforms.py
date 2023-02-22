@@ -4,7 +4,7 @@ from torch import Tensor
 import torch.nn as nn
 import warnings
 
-from .nsgt import NSGT_sliced, BarkScale
+from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale
 
 
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
@@ -18,17 +18,26 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
 
 
 class NSGTBase(nn.Module):
-    def __init__(self, scale, fbins, fmin, fmax=22050, fs=44100, device="cuda", gamma=25):
+    def __init__(self, scale, fbins, fmin, fmax=22050., fgamma=15., fs=44100., device="cuda"):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
         self.fmin = fmin
-        self.gamma = gamma
         self.fmax = fmax
 
-        self.scl = BarkScale(self.fmin, self.fmax, self.fbins, device=device)
+        if scale == 'bark':
+            self.scl = BarkScale(self.fmin, self.fmax, self.fbins, device=device)
+        elif scale == 'mel':
+            self.scl = MelScale(self.fmin, self.fmax, self.fbins, device=device)
+        elif scale == 'cqlog':
+            # constant-Q
+            self.scl = LogScale(self.fmin, self.fmax, self.fbins, device=device)
+        elif scale == 'vqlog':
+            # variable-Q with offset
+            self.scl = LogScale(self.fmin, self.fmax, self.fbins, gamma=fgamma, device=device)
 
         self.sllen, self.trlen = self.scl.suggested_sllen_trlen(fs)
-        print(f"sllen, trlen: {self.sllen}, {self.trlen}")
+        scale_to_print = scale if scale != 'vqlog' else f"vqlog (gamma={fgamma})"
+        print(f"scale={scale_to_print}, fbins={fbins}, fmin={fmin:.2f}, fmax={fmax:.2f}, sllen={self.sllen}, trlen={self.trlen}")
 
         self.nsgt = NSGT_sliced(
             self.scl,
