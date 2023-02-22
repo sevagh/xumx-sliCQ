@@ -33,10 +33,13 @@ MAX_VALID_SAMPLES = 2 # This limits validation data to avoid OOM, use two smalle
 # for optuna-dashboard
 SQLITE_DB = "sqlite:////db.sqlite3"
 
+# limit slicqt slice size to 1s in length
+MAX_SLLEN = 44100
+
 
 def define_model(trial):
     # limit lower than 1000 to avoid overly-large slicqts
-    fbins = trial.suggest_int("frequency_bins", 100, 500)
+    fbins = trial.suggest_int("frequency_bins", 100, 1000)
     fmin = trial.suggest_float("frequency_min", 10., 200.)
 
     # widen log bands
@@ -56,15 +59,19 @@ def define_model(trial):
         device=DEVICE,
     )
 
+    if nsgt_base.sllen > MAX_SLLEN:
+        raise ValueError(f"sllen {nsgt_base.sllen} exceeds {MAX_SLLEN}, discarding")
+
     hidden_size_1 = trial.suggest_int("hidden_size_1", 12, 128)
     hidden_size_2 = trial.suggest_int("hidden_size_2", 24, 256)
 
-    #freq_filter_small = trial.suggest_int("freq_filter_small", 1, 3)
     freq_filter_medium = trial.suggest_int("freq_filter_medium", 1, 7)
     freq_filter_large = trial.suggest_int("freq_filter_large", 3, 13)
 
     freq_thresh_small = trial.suggest_int("freq_thresh_small", 5, 10)
     freq_thresh_medium = trial.suggest_int("freq_thresh_medium", 10, 40)
+
+    time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
 
     nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=SAMPLE_RATE
@@ -92,6 +99,7 @@ def define_model(trial):
         freq_filter_medium=freq_filter_medium,
         freq_thresh_medium=freq_thresh_medium,
         freq_filter_large=freq_filter_large,
+        time_filter_2=time_filter_2,
     ).to(DEVICE)
 
     return unmix, encoder
@@ -242,7 +250,10 @@ if __name__ == "__main__":
         objective,
         n_trials=100,
         timeout=None,
-        catch=(RuntimeError,), # invalid convolutional kernel sizes etc.
+        catch=(
+            RuntimeError, # handle invalid conv kernel sizes etc.
+            ValueError,   # handle sllen too long
+        ),
     )
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])

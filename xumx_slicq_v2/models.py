@@ -33,6 +33,7 @@ class Unmix(nn.Module):
         freq_filter_medium: int = 3,
         freq_thresh_medium: int = 20,
         freq_filter_large: int = 5,
+        time_filter_2: int = 3,
         input_means=None,
         input_scales=None,
     ):
@@ -57,6 +58,7 @@ class Unmix(nn.Module):
                     freq_filter_medium=freq_filter_medium,
                     freq_thresh_medium=freq_thresh_medium,
                     freq_filter_large=freq_filter_large,
+                    time_filter_2=time_filter_2,
                     input_mean=input_mean,
                     input_scale=input_scale,
                 )
@@ -94,6 +96,7 @@ class _SlicedUnmix(nn.Module):
         freq_filter_medium: int = 3,
         freq_thresh_medium: int = 20,
         freq_filter_large: int = 5,
+        time_filter_2: int = 3,
         input_mean=None,
         input_scale=None,
     ):
@@ -136,7 +139,7 @@ class _SlicedUnmix(nn.Module):
             Conv2d(
                 hidden_size_1,
                 hidden_size_2,
-                (freq_filter, 3),
+                (freq_filter, time_filter_2),
                 bias=False,
             ),
             BatchNorm2d(hidden_size_2),
@@ -147,7 +150,7 @@ class _SlicedUnmix(nn.Module):
             ConvTranspose2d(
                 hidden_size_2,
                 hidden_size_1,
-                (freq_filter, 3),
+                (freq_filter, time_filter_2),
                 bias=False,
             ),
             BatchNorm2d(hidden_size_1),
