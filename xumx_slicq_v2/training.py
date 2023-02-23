@@ -132,7 +132,7 @@ def get_statistics(args, encoder, dataset, time_blocks):
     return [scaler.mean_ for scaler in scalers], std
 
 
-def main():
+def training_main():
     parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 Trainer")
 
     # Dataset paramaters; always /MUSDB18-HQ
@@ -600,4 +600,4 @@ class _ComplexMSELossCriterion:
 
 
 if __name__ == "__main__":
-    main()
+    training_main()

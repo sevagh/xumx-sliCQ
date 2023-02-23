@@ -31,14 +31,14 @@ setup(
             "torchinfo",
             "scikit-learn",
         ],
-        "optuna": [
+        "tuning": [
             "auraloss",
             "optuna",
             "optuna-dashboard",
         ],
-        "test": [
-            "pytest",
-        ],
+        "plotting": [
+            "matplotlib",
+        ]
     },
     packages=find_packages(),
     include_package_data=True,

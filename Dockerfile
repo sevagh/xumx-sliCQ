@@ -31,4 +31,4 @@ COPY --from=devel /wheelhouse /wheelhouse
 # install xumx-slicq-v2 from source to get its dependencies
 COPY . /xumx-sliCQ-V2
 WORKDIR /xumx-sliCQ-V2
-RUN python -m pip install --pre -e .[training,optuna] --find-links /wheelhouse
+RUN python -m pip install --pre -e .[training,tuning,plotting] --find-links /wheelhouse
