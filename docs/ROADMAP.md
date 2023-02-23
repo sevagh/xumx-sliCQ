@@ -38,6 +38,15 @@ xumx-slicq-v2-slim = dockerhub inference only
     nvcr, training, blending, <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>
     add back spectrogram plotting code (+ overlap-add, + per-block vs. unified spectrogram)
 
+## Optuna optimization rounds
+
+* Optuna round 1: hidden_size_1, hidden_size_2, time_filter_2
+    Value:  -1.5838500261306763
+      Params:
+        hidden_size_1: 50
+        hidden_size_2: 51
+        time_filter_2: 4
+
 *effort 2: inference/public*
     * option for TensorRT model
 1. Inference = '__main__.py'; ensure it works; CPU or GPU inference with outputting files (for demos etc.) is fine

@@ -38,23 +38,22 @@ MAX_SLLEN = 44100
 
 
 def define_model(trial):
-    # limit lower than 1000 to avoid overly-large slicqts
-    fbins = trial.suggest_int("frequency_bins", 100, 1000)
-    fmin = trial.suggest_float("frequency_min", 10., 200.)
+    # try to avoid overly-large slicqts
+    #fbins = trial.suggest_int("frequency_bins", 100, 700)
+    #fmin = trial.suggest_float("frequency_min", 5., 100.)
+    #fscale = trial.suggest_categorical("fscale", ["bark", "mel"]) # as usual, vqlog/cqlog end up being a bust
 
-    # widen log bands
-    fgamma = trial.suggest_float("frequency_gamma", 0., 200.)
-    fmax = trial.suggest_float("frequency_max", 10000., 22050.)
-
-    fscale = trial.suggest_categorical("fscale", ["bark", "mel", "cqlog", "vqlog"])
+    fbins = 262
+    fscale = 'bark'
+    fmin = 32.9
+    #fmax = trial.suggest_float("fmax", 10000., 22050.)
 
     # sliCQT config is a hyperparam
     nsgt_base = transforms.NSGTBase(
-        fscale, # bark-scale only for now
+        fscale,
         fbins,
         fmin,
-        fmax=fmax,
-        fgamma=fgamma,
+        #fmax=fmax,
         fs=SAMPLE_RATE,
         device=DEVICE,
     )
@@ -62,16 +61,14 @@ def define_model(trial):
     if nsgt_base.sllen > MAX_SLLEN:
         raise ValueError(f"sllen {nsgt_base.sllen} exceeds {MAX_SLLEN}, discarding")
 
-    hidden_size_1 = trial.suggest_int("hidden_size_1", 12, 128)
-    hidden_size_2 = trial.suggest_int("hidden_size_2", 24, 256)
-
-    freq_filter_medium = trial.suggest_int("freq_filter_medium", 1, 7)
-    freq_filter_large = trial.suggest_int("freq_filter_large", 3, 13)
+    #hidden_size_1 = trial.suggest_int("hidden_size_1", 4, 128)
+    #hidden_size_2 = trial.suggest_int("hidden_size_2", 8, 256)
+    #time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
 
     freq_thresh_small = trial.suggest_int("freq_thresh_small", 5, 10)
     freq_thresh_medium = trial.suggest_int("freq_thresh_medium", 10, 40)
-
-    time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
+    freq_filter_medium = trial.suggest_int("freq_filter_medium", 1, 7)
+    freq_filter_large = trial.suggest_int("freq_filter_large", 3, 9)
 
     nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=SAMPLE_RATE
@@ -92,14 +89,13 @@ def define_model(trial):
 
     unmix = models.Unmix(
         jagged_slicq_cnorm,
-        hidden_size_1=hidden_size_1,
-        hidden_size_2=hidden_size_2,
-        freq_filter_small=1, # must be 1 because of smallest frequency bins
-        freq_thresh_small=freq_thresh_small,
-        freq_filter_medium=freq_filter_medium,
-        freq_thresh_medium=freq_thresh_medium,
+        #hidden_size_1=hidden_size_1,
+        #hidden_size_2=hidden_size_2,
         freq_filter_large=freq_filter_large,
-        time_filter_2=time_filter_2,
+        freq_filter_medium=freq_filter_medium,
+        freq_thresh_small=freq_thresh_small,
+        freq_thresh_medium=freq_thresh_medium,
+        #time_filter_2=time_filter_2,
     ).to(DEVICE)
 
     return unmix, encoder
@@ -134,10 +130,8 @@ def objective(trial):
     model, encoder  = define_model(trial)
     nsgt, insgt, cnorm = encoder
 
-    # Generate the optimizers.
-    optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "AdamW", "SGD"])
-    lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
-    optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
+    # Generate the optimizers. Use a fixed AdamW with lr=0.001 to reduce total hyperparams
+    optimizer = optim.AdamW(model.parameters(), lr=0.001)
 
     # Get the MUSDB dataset.
     train_loader, valid_loader = get_musdb()
