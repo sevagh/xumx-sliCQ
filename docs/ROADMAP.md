@@ -28,7 +28,10 @@ xumx-slicq-v2-slim = dockerhub inference only
 * xumx-sliCQ-V2-training: this repo; 28MB v1-inspired model
 * Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
 * looking good and we have a complex-valued loss baseline: 0.0395, 4.2 dB median SDR
-    * Optuna: retrain with best results: 50 MB model
+    * Optuna: retrain with best results: 60 MB model
+    * nn stuff
+        * cross-target skip connections
+        * cross frequency bin skip connections
     * Slicqt wiener oracle: new slicqt: ('bark', 288, 43.39999999999988); try it :shrug:
     * TensorRT save script (ala blendmodels)
     * tag as "v1.0.0a"

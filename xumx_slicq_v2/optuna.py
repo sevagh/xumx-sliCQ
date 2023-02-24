@@ -61,9 +61,9 @@ def define_model(trial):
     if nsgt_base.sllen > MAX_SLLEN:
         raise ValueError(f"sllen {nsgt_base.sllen} exceeds {MAX_SLLEN}, discarding")
 
-    #hidden_size_1 = trial.suggest_int("hidden_size_1", 4, 128)
-    #hidden_size_2 = trial.suggest_int("hidden_size_2", 8, 256)
-    #time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
+    hidden_size_1 = trial.suggest_int("hidden_size_1", 4, 256)
+    hidden_size_2 = trial.suggest_int("hidden_size_2", 4, 256)
+    time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
 
     freq_thresh_small = trial.suggest_int("freq_thresh_small", 5, 10)
     freq_thresh_medium = trial.suggest_int("freq_thresh_medium", 10, 40)
@@ -89,13 +89,13 @@ def define_model(trial):
 
     unmix = models.Unmix(
         jagged_slicq_cnorm,
-        #hidden_size_1=hidden_size_1,
-        #hidden_size_2=hidden_size_2,
+        hidden_size_1=hidden_size_1,
+        hidden_size_2=hidden_size_2,
         freq_filter_large=freq_filter_large,
         freq_filter_medium=freq_filter_medium,
         freq_thresh_small=freq_thresh_small,
         freq_thresh_medium=freq_thresh_medium,
-        #time_filter_2=time_filter_2,
+        time_filter_2=time_filter_2,
     ).to(DEVICE)
 
     return unmix, encoder
@@ -242,7 +242,7 @@ if __name__ == "__main__":
 
     study.optimize(
         objective,
-        n_trials=100,
+        n_trials=1000,
         timeout=None,
         catch=(
             RuntimeError, # handle invalid conv kernel sizes etc.

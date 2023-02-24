@@ -1,3 +1,9 @@
+model: optuna hyperparams: 4.35 dB
+	vocals          ==> SDR:   4.765  SIR:   6.968  ISR:   8.478  SAR:   4.584
+	drums           ==> SDR:   4.849  SIR:   7.742  ISR:   9.156  SAR:   4.383
+	bass            ==> SDR:   4.547  SIR:   9.205  ISR:   5.481  SAR:   4.371
+	other           ==> SDR:   3.234  SIR:   1.836  ISR:   7.618  SAR:   4.374
+
 model: complex-MSE-wiener-full-bw-v1: 4.242 dB!!
 	loss: 0.0395!
 	28MB of weights, built-in wiener-EM... please be good

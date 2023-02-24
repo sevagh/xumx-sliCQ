@@ -45,7 +45,7 @@ def separate_and_evaluate(
 
 if __name__ == "__main__":
     # Training settings
-    parser = argparse.ArgumentParser(description="MUSDB18 Evaluation", add_help=False)
+    parser = argparse.ArgumentParser(description="MUSDB18 Evaluation")
 
     parser.add_argument(
         "--track", type=str, default=None, help="evaluate only this track name"

@@ -30,11 +30,7 @@ def separate(
 
 
 def inference_main():
-    parser = argparse.ArgumentParser(
-        description="xumx-sliCQ-V2 Inference",
-        add_help=True,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 Inference")
 
     parser.add_argument(
         "--ext",

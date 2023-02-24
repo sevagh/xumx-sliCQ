@@ -1,3 +1,10 @@
+new optuna hyperparams:
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.699  SIR:   9.633  ISR:   8.225  SAR:   6.085
+	drums           ==> SDR:   6.784  SIR:  11.507  ISR:  11.729  SAR:   8.596
+	bass            ==> SDR:   2.011  SIR:   3.425  ISR:   6.681  SAR:   4.147
+	other           ==> SDR:   4.197  SIR:   6.338  ISR:   7.847  SAR:   6.722
+
 Zeno - Signs
 
 ok:
