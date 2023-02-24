@@ -30,6 +30,7 @@ xumx-slicq-v2-slim = dockerhub inference only
 * looking good and we have a complex-valued loss baseline: 0.0395, 4.2 dB median SDR
     * Optuna: retrain with best results: 60 MB model
     * nn stuff
+        * mask sum to 1.0 loss; **doing this now**
         * cross-target skip connections
         * cross frequency bin skip connections
     * Slicqt wiener oracle: new slicqt: ('bark', 288, 43.39999999999988); try it :shrug:

@@ -6,8 +6,7 @@ import torch
 import json
 from torch import Tensor
 import torch.nn as nn
-from .models import Unmix
-import norbert
+from .model import Unmix
 from .transforms import (
     ComplexNorm,
     NSGTBase,

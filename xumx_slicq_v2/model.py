@@ -76,12 +76,19 @@ class Unmix(nn.Module):
             p.grad = None
         self.eval()
 
-    def forward(self, Xcomplex) -> Tensor:
-        futures = [
-            torch.jit.fork(self.sliced_umx[i], Xblock, torch.abs(torch.view_as_complex(Xblock)))
-            for i, Xblock in enumerate(Xcomplex)
-        ]
-        Ycomplex = [torch.jit.wait(future) for future in futures]
+    def forward(self, Xcomplex, return_masks=False) -> Tensor:
+        Ycomplex = [None]*len(Xcomplex)
+        Ymasks = [None]*len(Xcomplex)
+
+        for i, Xblock in enumerate(Xcomplex):
+            Ycomplex_block, Ymask_block = self.sliced_umx[i](
+                Xblock, torch.abs(torch.view_as_complex(Xblock))
+            )
+            Ycomplex[i] = Ycomplex_block
+            Ymasks[i] = Ymask_block
+
+        if return_masks:
+            return Ycomplex, Ymasks
         return Ycomplex
 
 
@@ -205,6 +212,7 @@ class _SlicedUnmix(nn.Module):
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
         ret = torch.zeros((4, *x_shape,), device=x.device, dtype=x.dtype)
+        ret_masks = torch.zeros((4, *x_shape,), device=x.device, dtype=x.dtype)
 
         x = torch.flatten(x, start_dim=-2, end_dim=-1)
 
@@ -220,16 +228,19 @@ class _SlicedUnmix(nn.Module):
                 #print(f"{x_tmp.shape=}")
                 x_tmp = layer(x_tmp)
 
-            # wiener before reshaping to 3d??
-
             x_tmp = x_tmp.reshape(x_shape)
+
+            # store the sigmoid/soft mask before multiplying with mix
+            ret_masks[i] = x_tmp.clone()
 
             # multiplicative skip connection
             if self.mask:
                 x_tmp = x_tmp * mix
 
-            ret[i, ...] = x_tmp
+            ret[i] = x_tmp
 
         # embedded blockwise wiener-EM (flattened in function then unflattened)
         ret = blockwise_wiener(xcomplex, ret)
-        return ret
+
+        # also return the mask
+        return ret, ret_masks

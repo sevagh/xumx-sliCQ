@@ -16,7 +16,7 @@ import torch.optim as optim
 import torch.utils.data
 
 from .data import MUSDBDataset, custom_collate
-from xumx_slicq_v2 import models
+from xumx_slicq_v2 import model
 from xumx_slicq_v2 import transforms
 from xumx_slicq_v2.training import _ComplexMSELossCriterion
 
@@ -87,7 +87,7 @@ def define_model(trial):
     jagged_slicq_cnorm = cnorm(jagged_slicq)
     n_blocks = len(jagged_slicq)
 
-    unmix = models.Unmix(
+    unmix = model.Unmix(
         jagged_slicq_cnorm,
         hidden_size_1=hidden_size_1,
         hidden_size_2=hidden_size_2,

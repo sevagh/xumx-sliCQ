@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from .data import MUSDBDataset, custom_collate
 
-from xumx_slicq_v2 import models
+from xumx_slicq_v2 import model
 from xumx_slicq_v2 import transforms
 from xumx_slicq_v2.separator import Separator
 
@@ -71,14 +71,29 @@ def loop(
 
                 Xcomplex = nsgt(x)
 
-                Ycomplex_ests = unmix(Xcomplex)
+                Ycomplex_ests, Ymasks = unmix(Xcomplex, return_masks=True)
 
                 Ycomplex_targets = nsgt(y_targets)
 
-                loss = criterion(
+                mse_loss = criterion(
                     Ycomplex_ests,
                     Ycomplex_targets,
                 )
+
+                mask_mse_loss = 0.
+
+                ideal_sum_of_masks = [None]*len(Ymasks)
+
+                # sum of all 4 target masks should be exactly 1.0
+                for i, Ymask in enumerate(Ymasks):
+                    Ymask_sum = torch.sum(Ymask, dim=0, keepdims=False)
+                    ideal_mask = torch.ones_like(Ymask_sum)
+
+                    mask_mse_loss += torch.mean((Ymask_sum-ideal_mask)**2)
+
+                mask_mse_loss /= len(Ymasks)
+
+                loss = mse_loss + mask_mse_loss
 
             if train:
                 optimizer.zero_grad()
@@ -323,7 +338,7 @@ def training_main():
     else:
         scaler_mean, scaler_std = get_statistics(args, encoder, train_dataset, n_blocks)
 
-    unmix = models.Unmix(
+    unmix = model.Unmix(
         jagged_slicq_cnorm,
         input_means=scaler_mean,
         input_scales=scaler_std,
