@@ -27,13 +27,17 @@ xumx-slicq-v2-slim = dockerhub inference only
 *effort 1: training*
 * xumx-sliCQ-V2-training: this repo; 28MB v1-inspired model
 * Differentiable sliCQT-Wiener w/ complex-MSE, squeeze more juice from network, v1 28MB
-* looking good and we have a complex-valued loss baseline: 0.0395, 4.2 dB median SDR
-    * Optuna: retrain with best results: 60 MB model
+* looking good and we have a complex-valued loss baseline: 0.0395, 4.24 dB median SDR
+    * Optuna: retrain with best results: 60 MB model: 0.0390, 4.35 dB median SDR
+        hidden_size: 50, 51, time_filter_2: 4
     * nn stuff
-        * mask sum to 1.0 loss; **doing this now**
-        * cross-target skip connections
-        * cross frequency bin skip connections
-    * Slicqt wiener oracle: new slicqt: ('bark', 288, 43.39999999999988); try it :shrug:
+        * **easy** _Mask Sum Loss_ **doing this now**: 
+        * **medium** _Cross-target Skip Connection_ sum all targets between mirror encoder/decoders
+            * implement with simple code:  x_encoded1_target1, x_encoded2_target2, etc.
+            * skip conn citations:
+        * possibly put back bandwidth param? save space 
+<https://file.techscience.com/ueditor/files/csse/TSP_CSSE-44-3/TSP_CSSE_29732/TSP_CSSE_29732.pdf>
+<https://arxiv.org/pdf/1606.08921.pdf>
     * TensorRT save script (ala blendmodels)
     * tag as "v1.0.0a"
     * visualization.py: spectrogram plotting code (+ overlap-add, flatten, + per-block vs. unified spectrogram)
@@ -45,23 +49,11 @@ xumx-slicq-v2-slim = dockerhub inference only
     * optuna + optuna dashboard/screenshots
     * tensorboard + training UI/screenshots
 
-## Optuna optimization rounds
-
-* Optuna round 1: hidden_size_1, hidden_size_2, time_filter_2
-    Value:  -1.5838500261306763
-      Params:
-        hidden_size_1: 50
-        hidden_size_2: 51
-        time_filter_2: 4
-
-## Wiener-oracle
-
-current config (262, 32.9):
-    bass, drums, vocals, other sdr! 9.53 9.90 11.51 9.62
-    total sdr: 10.14
-
-new wiener-em oracle: not much better
-    total:  10.17373390147092       ('bark', 288, 43.39999999999988)
+*effort 3: from wip base, more NN stuff*
+* new slicqt: ('bark', 288, 43.39999999999988); try it?
+    10.17 wiener oracle vs. 10.14,  see what it does to model size + results
+* **hard/future** cross frequency bin mixing (needs new code)?
+    "global" bottleneck layer, but it messes with skip conns
 
 *effort 2: inference/public*
     * option for TensorRT model

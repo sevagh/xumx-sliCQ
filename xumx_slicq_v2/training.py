@@ -494,8 +494,8 @@ def training_main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
-            tboard_writer.add_scalar(f"Loss/train (complex MSE)", train_loss, epoch)
-            tboard_writer.add_scalar(f"Loss/valid (complex MSE)", valid_loss, epoch)
+            tboard_writer.add_scalar(f"Loss/train (MSE)", train_loss, epoch)
+            tboard_writer.add_scalar(f"Loss/valid (MSE)", valid_loss, epoch)
 
         if stop:
             print("Apply Early Stopping")

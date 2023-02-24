@@ -1,3 +1,51 @@
+mask sum loss (0.0407):
+	vocals          ==> SDR:   4.569  SIR:  10.015  ISR:   8.403  SAR:   5.800
+	drums           ==> SDR:   6.759  SIR:  11.374  ISR:  11.777  SAR:   8.570
+	bass            ==> SDR:   2.036  SIR:   3.512  ISR:   5.995  SAR:   3.446
+	other           ==> SDR:   4.205  SIR:   6.576  ISR:   8.340  SAR:   6.493
+
+mask sum loss (0.0410):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.546  SIR:   9.665  ISR:   8.331  SAR:   5.770
+	drums           ==> SDR:   6.813  SIR:  11.688  ISR:  11.390  SAR:   8.560
+	bass            ==> SDR:   2.172  SIR:   3.587  ISR:   5.961  SAR:   3.590
+	other           ==> SDR:   4.331  SIR:   6.295  ISR:   8.386  SAR:   6.631
+
+mask sum loss (0.0411):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.506  SIR:   8.976  ISR:   8.606  SAR:   6.232
+	drums           ==> SDR:   6.626  SIR:  11.174  ISR:  11.920  SAR:   8.571
+	bass            ==> SDR:   2.107  SIR:   4.025  ISR:   6.016  SAR:   3.646
+	other           ==> SDR:   4.162  SIR:   6.729  ISR:   7.603  SAR:   6.357
+
+mask sum loss (another drop 0.0414):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.172  SIR:  10.757  ISR:   6.804  SAR:   4.507
+	drums           ==> SDR:   6.790  SIR:  11.575  ISR:  11.355  SAR:   8.548
+	bass            ==> SDR:   2.158  SIR:   3.484  ISR:   6.619  SAR:   4.008
+	other           ==> SDR:   4.217  SIR:   5.679  ISR:   9.162  SAR:   6.916
+
+mask sum loss (another drop 0.0418):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.570  SIR:   9.854  ISR:   8.081  SAR:   5.690
+	drums           ==> SDR:   6.698  SIR:  11.037  ISR:  11.725  SAR:   8.647
+	bass            ==> SDR:   1.987  SIR:   3.452  ISR:   5.696  SAR:   3.436
+	other           ==> SDR:   4.324  SIR:   6.474  ISR:   8.519  SAR:   6.614
+
+mask sum loss (huge drop 0.043):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.318  SIR:   8.761  ISR:   7.441  SAR:   5.604
+	drums           ==> SDR:   6.753  SIR:  11.637  ISR:  11.071  SAR:   8.625
+	bass            ==> SDR:   2.033  SIR:   3.410  ISR:   5.385  SAR:   3.757
+	other           ==> SDR:   4.290  SIR:   5.619  ISR:   8.649  SAR:   7.028
+
+mask sum loss (28 epochs, lots of room for improvement):
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   3.993  SIR:   9.395  ISR:   6.660  SAR:   5.053
+	drums           ==> SDR:   6.542  SIR:  11.029  ISR:  11.105  SAR:   8.604
+	bass            ==> SDR:   1.915  SIR:   3.236  ISR:   5.522  SAR:   3.517
+	other           ==> SDR:   4.152  SIR:   5.522  ISR:   8.835  SAR:   6.944
+
 new optuna hyperparams:
 	Aggrated Scores (median over frames, median over tracks)
 	vocals          ==> SDR:   4.699  SIR:   9.633  ISR:   8.225  SAR:   6.085

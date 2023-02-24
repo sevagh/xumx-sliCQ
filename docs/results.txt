@@ -1,3 +1,13 @@
+model: mask sum
+	loss: 0.0407
+
+model: mask sum: 4.39 dB (4.4 dB)
+	loss: 0.0410
+	vocals          ==> SDR:   4.600  SIR:   6.371  ISR:   8.851  SAR:   4.649
+	drums           ==> SDR:   4.901  SIR:   7.745  ISR:   8.824  SAR:   5.055
+	bass            ==> SDR:   4.651  SIR:   8.848  ISR:   5.262  SAR:   4.097
+	other           ==> SDR:   3.397  SIR:   1.512  ISR:   7.933  SAR:   4.344
+
 model: optuna hyperparams: 4.35 dB
 	vocals          ==> SDR:   4.765  SIR:   6.968  ISR:   8.478  SAR:   4.584
 	drums           ==> SDR:   4.849  SIR:   7.742  ISR:   9.156  SAR:   4.383
