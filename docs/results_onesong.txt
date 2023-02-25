@@ -1,3 +1,9 @@
+mask sum loss (0.0405):
+	vocals          ==> SDR:   4.517  SIR:  10.179  ISR:   8.212  SAR:   5.615
+	drums           ==> SDR:   6.854  SIR:  11.894  ISR:  11.313  SAR:   8.481
+	bass            ==> SDR:   2.172  SIR:   4.250  ISR:   6.499  SAR:   3.614
+	other           ==> SDR:   4.319  SIR:   6.542  ISR:   8.944  SAR:   6.645
+
 mask sum loss (0.0407):
 	vocals          ==> SDR:   4.569  SIR:  10.015  ISR:   8.403  SAR:   5.800
 	drums           ==> SDR:   6.759  SIR:  11.374  ISR:  11.777  SAR:   8.570

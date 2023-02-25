@@ -30,14 +30,17 @@ xumx-slicq-v2-slim = dockerhub inference only
 * looking good and we have a complex-valued loss baseline: 0.0395, 4.24 dB median SDR
     * Optuna: retrain with best results: 60 MB model: 0.0390, 4.35 dB median SDR
         hidden_size: 50, 51, time_filter_2: 4
+    * Mask sum loss: 4.4 dB
     * nn stuff
-        * **easy** _Mask Sum Loss_ **doing this now**: 
         * **medium** _Cross-target Skip Connection_ sum all targets between mirror encoder/decoders
             * implement with simple code:  x_encoded1_target1, x_encoded2_target2, etc.
             * skip conn citations:
-        * possibly put back bandwidth param? save space 
 <https://file.techscience.com/ueditor/files/csse/TSP_CSSE-44-3/TSP_CSSE_29732/TSP_CSSE_29732.pdf>
 <https://arxiv.org/pdf/1606.08921.pdf>
+        * **optional** new slicqt: ('bark', 288, 43.39999999999988); try it?
+            10.17 wiener oracle vs. 10.14,  see what it does to model size + results
+        * lightweight variants: `-lite`: no wiener + capped bandwidth
+            * try no-wiener in runtime
     * TensorRT save script (ala blendmodels)
     * tag as "v1.0.0a"
     * visualization.py: spectrogram plotting code (+ overlap-add, flatten, + per-block vs. unified spectrogram)
@@ -50,10 +53,24 @@ xumx-slicq-v2-slim = dockerhub inference only
     * tensorboard + training UI/screenshots
 
 *effort 3: from wip base, more NN stuff*
-* new slicqt: ('bark', 288, 43.39999999999988); try it?
-    10.17 wiener oracle vs. 10.14,  see what it does to model size + results
 * **hard/future** cross frequency bin mixing (needs new code)?
     "global" bottleneck layer, but it messes with skip conns
+    return skip conn from encoder function!
+
+    # list
+    encoded, skip_conn = sliced_umx.encoder()
+
+    # global bottleneck
+    encoded_concat = concat or whatever
+    # try this: https://stats.stackexchange.com/a/552170
+    encoded_concat = self.bottleneck(encoded_concat)
+    encoded = deconcat
+        
+    decoded, masks = sliced_umx.decoder(encoded, skip_conn)
+    
+
+* complex NN for estimating phase
+* spiking neural networks (hah)
 
 *effort 2: inference/public*
     * option for TensorRT model

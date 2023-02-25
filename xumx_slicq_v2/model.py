@@ -76,13 +76,13 @@ class Unmix(nn.Module):
             p.grad = None
         self.eval()
 
-    def forward(self, Xcomplex, return_masks=False) -> Tensor:
+    def forward(self, Xcomplex, return_masks=False, wiener=True) -> Tensor:
         Ycomplex = [None]*len(Xcomplex)
         Ymasks = [None]*len(Xcomplex)
 
         for i, Xblock in enumerate(Xcomplex):
             Ycomplex_block, Ymask_block = self.sliced_umx[i](
-                Xblock, torch.abs(torch.view_as_complex(Xblock))
+                Xblock, torch.abs(torch.view_as_complex(Xblock)), wiener=wiener
             )
             Ycomplex[i] = Ycomplex_block
             Ymasks[i] = Ymask_block
@@ -205,7 +205,7 @@ class _SlicedUnmix(nn.Module):
             p.grad = None
         self.eval()
 
-    def forward(self, xcomplex: Tensor, x: Tensor) -> Tensor:
+    def forward(self, xcomplex: Tensor, x: Tensor, wiener: bool = True) -> Tensor:
         mix = x.detach().clone()
 
         x_shape = x.shape
@@ -240,7 +240,10 @@ class _SlicedUnmix(nn.Module):
             ret[i] = x_tmp
 
         # embedded blockwise wiener-EM (flattened in function then unflattened)
-        ret = blockwise_wiener(xcomplex, ret)
+        if wiener:
+            ret = blockwise_wiener(xcomplex, ret)
+        else:
+            ret = phasemix_sep(xcomplex, ret)
 
         # also return the mask
         return ret, ret_masks

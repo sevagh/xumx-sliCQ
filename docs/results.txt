@@ -1,5 +1,9 @@
-model: mask sum
-	loss: 0.0407
+model: mask sum: 4.4 dB
+	loss: 0.0405 (leapfrog 0.0407)
+	vocals          ==> SDR:   4.791  SIR:   7.794  ISR:   8.579  SAR:   4.500
+	drums           ==> SDR:   4.846  SIR:   8.062  ISR:   8.649  SAR:   4.953
+	bass            ==> SDR:   4.690  SIR:   8.778  ISR:   5.558  SAR:   4.193
+	other           ==> SDR:   3.273  SIR:   2.532  ISR:   8.065  SAR:   4.422
 
 model: mask sum: 4.39 dB (4.4 dB)
 	loss: 0.0410
