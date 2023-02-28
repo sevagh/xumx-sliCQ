@@ -226,3 +226,7 @@ class NSGT_sliced(torch.nn.Module):
             )
         )
         return ret
+
+    @property
+    def coef_factor(self):
+        return float(self.ncoefs)/self.sl_len

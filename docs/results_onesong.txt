@@ -1,3 +1,59 @@
+359 epochs -0.008
+	vocals          ==> SDR:   4.430  SIR:  10.418  ISR:   8.260  SAR:   4.771
+	drums           ==> SDR:   6.435  SIR:  11.069  ISR:  11.534  SAR:   8.315
+	bass            ==> SDR:   2.085  SIR:   4.119  ISR:   5.449  SAR:   3.116
+	other           ==> SDR:   4.360  SIR:   6.493  ISR:   9.165  SAR:   6.335
+
+200 epochs -0.006
+	vocals          ==> SDR:   4.063  SIR:  10.946  ISR:   6.935  SAR:   4.291
+	drums           ==> SDR:   6.591  SIR:  10.710  ISR:  11.493  SAR:   8.392
+	bass            ==> SDR:   2.236  SIR:   4.302  ISR:   5.169  SAR:   3.092
+	other           ==> SDR:   4.308  SIR:   5.869  ISR:  10.101  SAR:   6.967
+
+103 epochs: good new loss -0.0019
+	vocals          ==> SDR:   3.945  SIR:   9.985  ISR:   7.521  SAR:   4.731
+	drums           ==> SDR:   6.397  SIR:   9.847  ISR:  12.113  SAR:   8.430
+	bass            ==> SDR:   2.151  SIR:   4.378  ISR:   4.968  SAR:   3.224
+	other           ==> SDR:   4.328  SIR:   6.436  ISR:   8.991  SAR:   6.421
+
+83 epochs good new loss -0.001434
+	vocals          ==> SDR:   4.248  SIR:   9.652  ISR:   7.986  SAR:   5.034
+	drums           ==> SDR:   6.564  SIR:  10.753  ISR:  11.202  SAR:   8.249
+	bass            ==> SDR:   2.012  SIR:   2.852  ISR:   5.064  SAR:   3.035
+	other           ==> SDR:   4.339  SIR:   6.222  ISR:   9.011  SAR:   6.512
+
+51 epochs good new loss 0.0033
+	vocals          ==> SDR:   4.011  SIR:  10.173  ISR:   6.965  SAR:   4.357
+	drums           ==> SDR:   6.404  SIR:  10.436  ISR:  11.199  SAR:   8.352
+	bass            ==> SDR:   1.965  SIR:   3.323  ISR:   3.792  SAR:   2.674
+	other           ==> SDR:   4.525  SIR:   5.274  ISR:  10.264  SAR:   7.197
+
+38 epochs w/ all-new everything:
+	vocals          ==> SDR:   3.729  SIR:   8.847  ISR:   6.721  SAR:   4.784
+	drums           ==> SDR:   6.344  SIR:  10.251  ISR:  10.709  SAR:   8.346
+	bass            ==> SDR:   1.927  SIR:   2.442  ISR:   4.438  SAR:   3.045
+	other           ==> SDR:   4.203  SIR:   5.123  ISR:   9.017  SAR:   7.048
+
+3 epochs w/ bottleneck + new stuff:
+acceptable
+	vocals          ==> SDR:   3.714  SIR:   6.683  ISR:   7.539  SAR:   5.937
+	drums           ==> SDR:   5.803  SIR:   9.410  ISR:   8.982  SAR:   8.000
+	bass            ==> SDR:   1.171  SIR:   1.410  ISR:   5.974  SAR:   4.043
+	other           ==> SDR:   4.044  SIR:   5.748  ISR:   7.187  SAR:   6.684
+
+how can no bottleneck pretrained model even load? torch allows that?
+blank/no weight bottleneck layer... yeah, makes sense
+	vocals          ==> SDR:  -0.434  SIR:  -4.034  ISR:   3.843  SAR:   2.168
+	drums           ==> SDR:   0.696  SIR:  -4.127  ISR:   1.417  SAR:   4.166
+	bass            ==> SDR:  -0.669  SIR: -10.210  ISR:   1.260  SAR:   3.945
+	other           ==> SDR:   1.219  SIR:  -1.013  ISR:   3.986  SAR:   6.610
+
+global bottleneck (0.0387 WITH mask sum!):
+	vocals          ==> SDR:   4.394  SIR:  10.664  ISR:   7.785  SAR:   4.492
+	drums           ==> SDR:   6.910  SIR:  11.761  ISR:  12.185  SAR:   8.701
+	bass            ==> SDR:   2.357  SIR:   4.722  ISR:   5.251  SAR:   3.212
+	other           ==> SDR:   4.272  SIR:   6.040  ISR:   9.550  SAR:   6.648
+
 mask sum loss (0.0405):
 	vocals          ==> SDR:   4.517  SIR:  10.179  ISR:   8.212  SAR:   5.615
 	drums           ==> SDR:   6.854  SIR:  11.894  ISR:  11.313  SAR:   8.481

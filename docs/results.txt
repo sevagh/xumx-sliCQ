@@ -1,3 +1,26 @@
+model: mix of all (global bottleneck, mask sum, new wiener-oracle slicqt, leaky relu, sdr loss):
+	loss: -0.007984
+	62 MB of weights, to be pruned+fine-tuned later...
+	4.38 dB; bad, go backwards
+	vocals          ==> SDR:   4.870  SIR:   7.626  ISR:   9.053  SAR:   4.067
+	drums           ==> SDR:   4.998  SIR:   7.756  ISR:  10.039  SAR:   4.624
+	bass            ==> SDR:   4.402  SIR:   9.601  ISR:   5.296  SAR:   4.194
+	other           ==> SDR:   3.249  SIR:   1.969  ISR:   7.973  SAR:   3.892
+
+model: global bottleneck layer: 4.37475 ?!?! lower dB SDR, much better MSE loss
+	loss: 0.0387 (w/ mask sum loss)
+	vocals          ==> SDR:   4.711  SIR:   7.280  ISR:   8.988  SAR:   4.096
+	drums           ==> SDR:   5.092  SIR:   7.770  ISR:   9.343  SAR:   4.539
+	bass            ==> SDR:   4.482  SIR:   9.744  ISR:   5.252  SAR:   3.672
+	other           ==> SDR:   3.214  SIR:   2.656  ISR:   8.095  SAR:   4.090
+
+model: cross-target skip conn: 4.1845 dB
+	loss: 0.0418
+	vocals          ==> SDR:   4.217  SIR:   6.554  ISR:   8.526  SAR:   4.740
+	drums           ==> SDR:   4.943  SIR:   7.038  ISR:   9.054  SAR:   4.765
+	bass            ==> SDR:   4.289  SIR:   8.197  ISR:   5.664  SAR:   4.323
+	other           ==> SDR:   3.289  SIR:   2.101  ISR:   7.251  SAR:   4.155
+
 model: mask sum: 4.4 dB
 	loss: 0.0405 (leapfrog 0.0407)
 	vocals          ==> SDR:   4.791  SIR:   7.794  ISR:   8.579  SAR:   4.500
