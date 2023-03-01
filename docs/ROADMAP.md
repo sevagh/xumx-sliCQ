@@ -19,20 +19,10 @@ docker run --rm -it \
 
 1. Starting point: 28MB, 4.24 dB (full bw, block wiener, complex MSE loss = 0.0395)
 1. Optuna hyperparams (50,51,4): 60MB, 4.35 dB (0.0390)
-1. Mask sum loss: 0.0405, 4.4 dB
-1. Final
+1. Mask sum loss: 0.0405, 4.4 dB; done
 
 ## Post-trained model code/tasks
 
-1. Model pruning to save space? iterative + finetuning (like Optuna); "fine-pruning"
-    1. do more epochs of "fine-pruning"...
-    1. resources
-        <https://github.com/spellml/resnext50-panda/blob/master/notebooks/pruning.ipynb>
-        <https://jacobgil.github.io/deeplearning/pruning-deep-learning>
-        <https://blog.paperspace.com/neural-network-pruning-explained/>
-    1. do structured pruning
-    1. do prune + fine-tune, save with gzip
-        1. save disk space with gzip: <https://github.com/pytorch/pytorch/issues/6002#issuecomment-376950576>
 1. TensorRT export script + save in pretrained_model
     <https://pytorch.org/TensorRT/getting_started/getting_started_with_python_api.html#getting-started-with-python-api>
 1. Inference.py (and by association `__main__.py` work); CPU, GPU, TensorRT
