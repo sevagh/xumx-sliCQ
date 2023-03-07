@@ -35,7 +35,7 @@ def overlap_add_slicq(slicq, flatten=False):
     return out
 
 
-def blockwise_spectrogram(c, fs, sllen, freqs, frames, output_file, plot_title, flatten=False, fontsize=14, cmap='inferno'):
+def blockwise_spectrogram(c, fs, coef_factor, freqs, frames, output_file, plot_title, flatten=False, fontsize=14, cmap='inferno'):
     # dB
     print(f"c.shape: {c.shape}")
 
@@ -43,8 +43,9 @@ def blockwise_spectrogram(c, fs, sllen, freqs, frames, output_file, plot_title, 
 
     nb_t_bins = c.shape[-1]
     nb_slices = c.shape[-2]
-    ncoefs = nb_slices * nb_t_bins // 2 + nb_t_bins//2
-    coef_factor = ncoefs/nb_t_bins #sllen
+    ncoefs = int(coef_factor*frames)
+    print(f"ncoefs: {ncoefs}")
+    print(f"coef factor: {coef_factor}")
 
     mls = 20.*torch.log10(torch.abs(overlap_add_slicq(c, flatten=flatten)))
     mls = mls[:, :, int(chop/2):]
@@ -62,8 +63,10 @@ def blockwise_spectrogram(c, fs, sllen, freqs, frames, output_file, plot_title, 
     print(f"mls: {mls.shape}")
 
     fs_coef = fs*coef_factor # frame rate of coefficients
+    print(f"{fs_coef=}")
 
     ncoefs = int(coef_factor*frames)
+    print(f"{ncoefs=}")
     mls = mls[:ncoefs, :]
 
     mls_dur = len(mls)/fs_coef # final duration of MLS
@@ -72,11 +75,12 @@ def blockwise_spectrogram(c, fs, sllen, freqs, frames, output_file, plot_title, 
 
     mls_max = torch.quantile(mls, 0.999)
     print(f'mls_dur: {mls_dur}')
-    try:
-        im = axs.pcolormesh(numpy.linspace(0.0, mls_dur, num=ncoefs), freqs/1000., mls.T, vmin=mls_max-120., vmax=mls_max, cmap=cmap)
-    except TypeError:
-        freqs = numpy.r_[[0.], freqs]
-        im = axs.pcolormesh(numpy.linspace(0.0, mls_dur, num=ncoefs), freqs/1000., mls.T, vmin=mls_max-120., vmax=mls_max, cmap=cmap)
+    foo = numpy.linspace(0.0, mls_dur, num=ncoefs)
+    print(f"linspace: {foo.shape}")
+    print(f"mls.T: {mls.T.shape}")
+    print(f"freqs: {freqs.shape}")
+
+    im = axs.pcolormesh(numpy.linspace(0.0, mls_dur, num=ncoefs), freqs/1000., mls.T, vmin=mls_max-120., vmax=mls_max, cmap=cmap)
 
     axs.set_title(plot_title)
 
@@ -149,17 +153,21 @@ def visualization_main():
 
     slicq_params = '{0} scale, {1} bins, {2:.1f}-22050 Hz'.format(args.fscale, args.fbins, args.fmin)
 
+    coef_factors = slicq.coef_factors()
+
+    freq_idx = 0
     for i, c in enumerate(c_list):
         c = c.permute(1, 2, 0, 3)
         print(f"slicqt block shape: {c.shape}")
 
-        output_png_path = os.path.join("/spectrogram-plots", f"spectrogram-{args.input_wav}-block-{i}.png")
+        output_png_path = os.path.join("/spectrogram-plots", f"spectrogram-{os.path.basename(args.input_wav)}-block-{i}.png")
+        n_freqs = c.shape[1]
 
         blockwise_spectrogram(
             c,
             fs,
-            sllen,
-            freqs,
+            coef_factors[i],
+            freqs[freq_idx:freq_idx+n_freqs],
             signal.shape[1],
             output_png_path,
             f"Magnitude sliCQT, block {i} ({slicq_params})",
@@ -167,6 +175,7 @@ def visualization_main():
             fontsize=args.fontsize,
             cmap=args.cmap,
         )
+        freq_idx += n_freqs
 
 
 if __name__ == '__main__':

@@ -1,3 +1,10 @@
+model: no activation/mask/real output, skip conn, 31MB (25/55), 0.0396
+	Aggrated Scores (median over frames, median over tracks)
+	vocals          ==> SDR:   4.739  SIR:   7.188  ISR:   8.863  SAR:   4.693
+	drums           ==> SDR:   4.755  SIR:   7.672  ISR:   9.754  SAR:   4.729
+	bass            ==> SDR:   4.409  SIR:   9.311  ISR:   4.963  SAR:   4.209
+	other           ==> SDR:   3.383  SIR:   1.667  ISR:   7.540  SAR:   4.502
+
 model: mix of all (global bottleneck, mask sum, new wiener-oracle slicqt, leaky relu, sdr loss):
 	loss: -0.007984
 	62 MB of weights, to be pruned+fine-tuned later...

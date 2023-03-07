@@ -126,6 +126,8 @@ class NSGT_sliced(torch.nn.Module):
         else:
             sl = slice(0, None)
 
+        self.sl = sl
+
         self.fbins_actual = sl.stop
 
         # coefficients per slice
@@ -230,3 +232,12 @@ class NSGT_sliced(torch.nn.Module):
     @property
     def coef_factor(self):
         return float(self.ncoefs)/self.sl_len
+
+    def coef_factors(self):
+        # coefficients per slice
+        all_ncoefs = [
+            int(ceil(float(len(gii)) / mii)) * mii
+            for mii, gii in zip(self.M[self.sl], self.g[self.sl])
+        ]
+
+        return [float(ncoefs)/self.sl_len for ncoefs in all_ncoefs]
