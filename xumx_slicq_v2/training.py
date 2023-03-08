@@ -342,7 +342,7 @@ def training_main():
         jagged_slicq_cnorm,
         input_means=scaler_mean,
         input_scales=scaler_std,
-    ).to(device)
+    ).to(device, memory_format=torch.channels_last)
 
     if not args.quiet:
         torchinfo.summary(unmix, input_data=(jagged_slicq,))

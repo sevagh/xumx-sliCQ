@@ -3,6 +3,7 @@
 *.chkpnt
 *.pth
 *.json
+/plots
 logdir
 !pretrained_model/*.pth
 !pretrained_model/*.json

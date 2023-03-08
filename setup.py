@@ -20,8 +20,6 @@ setup(
         "torch>=1.13.1",
         "torchaudio>=0.13.1",
         "numpy",
-        "musdb==0.3.1",
-        "museval==0.3.1",
         "tqdm",
         "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
     ],
@@ -29,16 +27,17 @@ setup(
         "tensorrt": [
             "tensorrt",
         ],
-        "training": [
+        "devel": [
             "tensorboard",
             "torchinfo",
+            "tensorrt",
             "scikit-learn",
-        ],
-        "devel": [
             "auraloss",
             "optuna",
             "optuna-dashboard",
             "matplotlib",
+            "musdb==0.3.1",
+            "museval==0.3.1",
         ]
     },
     packages=find_packages(),

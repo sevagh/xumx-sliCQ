@@ -100,7 +100,7 @@ def blockwise_spectrogram(c, fs, coef_factor, freqs, frames, output_file, plot_t
 def visualization_main():
     parser = ArgumentParser()
 
-    parser.add_argument("--input-wav", type=str, default="/xumx-sliCQ-V2/docs/gspi.wav", help="Input file")
+    parser.add_argument("--input-wav", type=str, default="/xumx-sliCQ-V2/.github/gspi.wav", help="Input file")
     parser.add_argument("--sr", type=int, default=44100, help="Sample rate used for the NSGT (default=%(default)s)")
     parser.add_argument("--cmap", type=str, default='hot', help="spectrogram color map")
     parser.add_argument("--fscale", choices=('mel','bark','Bark'), default='Bark', help="Frequency scale")
