@@ -71,6 +71,9 @@ def blockwise_spectrogram(c, fs, coef_factor, freqs, frames, output_file, plot_t
 
     mls_dur = len(mls)/fs_coef # final duration of MLS
 
+    if flatten:
+        mls_dur *= 2.
+
     nb_bins = len(freqs)
 
     mls_max = torch.quantile(mls, 0.999)

@@ -65,10 +65,10 @@ def define_model(trial):
     hidden_size_2 = trial.suggest_int("hidden_size_2", 4, 256)
     time_filter_2 = trial.suggest_int("time_filter_2", 1, 9)
 
-    freq_thresh_small = trial.suggest_int("freq_thresh_small", 5, 10)
-    freq_thresh_medium = trial.suggest_int("freq_thresh_medium", 10, 40)
-    freq_filter_medium = trial.suggest_int("freq_filter_medium", 1, 7)
-    freq_filter_large = trial.suggest_int("freq_filter_large", 3, 9)
+    #freq_thresh_small = trial.suggest_int("freq_thresh_small", 5, 10)
+    #freq_thresh_medium = trial.suggest_int("freq_thresh_medium", 10, 40)
+    #freq_filter_medium = trial.suggest_int("freq_filter_medium", 1, 7)
+    #freq_filter_large = trial.suggest_int("freq_filter_large", 3, 9)
 
     nsgt, insgt = transforms.make_filterbanks(
         nsgt_base, sample_rate=SAMPLE_RATE
@@ -91,10 +91,10 @@ def define_model(trial):
         jagged_slicq_cnorm,
         hidden_size_1=hidden_size_1,
         hidden_size_2=hidden_size_2,
-        freq_filter_large=freq_filter_large,
-        freq_filter_medium=freq_filter_medium,
-        freq_thresh_small=freq_thresh_small,
-        freq_thresh_medium=freq_thresh_medium,
+        #freq_filter_large=freq_filter_large,
+        #freq_filter_medium=freq_filter_medium,
+        #freq_thresh_small=freq_thresh_small,
+        #freq_thresh_medium=freq_thresh_medium,
         time_filter_2=time_filter_2,
     ).to(DEVICE)
 
@@ -242,7 +242,7 @@ if __name__ == "__main__":
 
     study.optimize(
         objective,
-        n_trials=1000,
+        n_trials=100,
         timeout=None,
         catch=(
             RuntimeError, # handle invalid conv kernel sizes etc.

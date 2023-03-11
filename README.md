@@ -4,7 +4,6 @@
 1. Code
     1. diagrams (inkscape, block spectrograms, try mermaid?)
 1. git tag as "v1.0.0a" when ready
-1. submit to cadenza challenge
 -->
 
 # xumx-sliCQ-V2
@@ -26,7 +25,7 @@ It beats the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh
 
 **xumx-sliCQ-V2 is fast and light!** TODO TensorRT etc. here
 
-(TODO cadenza challenge results) here I worked on xumx-sliCQ-V2 for the Cadenza Challenge, where it placed **14th place** in the first challenge. Cite xumx-sliCQ-V2:
+(TODO cadenza challenge results) here I worked on xumx-sliCQ-V2 for the Cadenza Challenge, where it placed **14th place** in task A of the challenge. Cite xumx-sliCQ-V2:
 ```
 (TODO latex citation block here)
 ```
@@ -102,7 +101,7 @@ If you installed the package with pip, run them like `python -m xumx_slicq_v2.$s
 
 </details>
 
-### Basic inference (CPU, CUDA GPU)
+### Inference
 
 ### TensorRT inference
 
@@ -119,6 +118,12 @@ TODO: <https://pytorch.org/TensorRT/getting_started/getting_started_with_python_
     * Docker can be run on Windows and OSX, whereas if I don't use Docker, I can only provide instructions for Linux (my OS)
 </details>
 
+### Docker instructions
+
+Git clone and cd to the repository:
+```
+$ git clone https://github.com/sevagh/xumx-sliCQ-V2 && cd ./xumx-sliCQ-V2
+```
 Build the development container:
 
 ```
@@ -126,12 +131,8 @@ $ docker build -t "xumx-slicq-v2" .
 ```
 It is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) to include features and optimizations for to NVIDIA GPUs, such as automatic [TF32 for Ampere+](https://blogs.nvidia.com/blog/2020/05/14/tensorfloat-32-precision-format/), [bfloat16 support for Ampere+](https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html), and more.
 
-<details>
-<summary>Dynamic source code loading</summary>
 
-To dynamically update the source code in the container to develop new features, you can volume mount your local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
-
-</details>
+To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
     
 <details>
 <summary>Training</summary>
@@ -146,13 +147,11 @@ $ docker run --rm -it \
     python -m xumx_slicq_v2.training --help
 ```
 
-Browse the Tensorboard training dashboard at <http://127.0.0.1:6006/>:
-TODO tensorboard screenshot
-![tensorboard](.github/tensorboard.png)
+The Tensorboard training web dashboard is launched by the training script: <http://127.0.0.1:6006/>.
 
-To persist the model, you can volume mount a host volume to `:/model` (as in the command above). Running multiple times with a persisted model will continue the training process. If not, the trained model will disappear when the container is killed.
+**To persist the model**, you can volume mount a host volume to `:/model` (as in the command above). Killing and relaunching the container with a persisted model will continue the training process. If not, the trained model will disappear when the container is killed.
 
-TODO training details (epochs, best epoch, lowest loss)
+The lowest lost achieved (complex cross-target MSE + mask sum MSE loss) was 0.0405 at epoch 198. The average epoch time was around 170 seconds, or just under 3 minutes, with a batch size of 64 (and 8 cpu workers for the dataloader).
 
 </details>
 
@@ -167,8 +166,10 @@ $ docker run --rm -it \
     xumx-slicq-v2 \
     python -m xumx_slicq_v2.optuna --help
 ```
-Browse the Optuna tuning dashboard at <http://127.0.0.1:6006/>
-TODO optuna dashboard screenshot
+
+The Optuna tuning script runs on a cut-down training and validation dataset, and minimizes the SDR score achieved by the model within 10 epochs per trial. It runs for 100 trials and was used to discover improved hyperparameters for xumx-sliCQ-V2 ([read more here](#improvements-over-xumx-slicq)).
+
+The Optuna tuning web dashboard is launched by the tuning script: <http://127.0.0.1:6006/>.
 
 </details>
 
@@ -181,6 +182,38 @@ $ docker run --rm -it \
     xumx-slicq-v2 \
     python -m xumx_slicq_v2.evaluation --help
 ```
+
+By default, the pretrained model will be evaluated. **Pass different models to evaluate** as a path inside the container relative to the source code dir:
+```
+$ docker run --rm -it \
+    -v /path/to/MUSDB18-HQ/dataset:/MUSDB18-HQ \
+    -v /path/to//xumx-sliCQ-V2/source/code:/xumx-sliCQ-V2/ \
+    xumx-slicq-v2 \
+    python -m xumx_slicq_v2.evaluation \
+    --model-path='/xumx-sliCQ-V2/model-to-evaluate'
+```
+
+This takes ~2-3 hours to run on all 50 test tracks of MUSDB18-HQ on my CPU (5950X + 64GB RAM). It will output the BSS scores of each track, and at the end, output the median score across all frames and tracks:
+```
+loading separator
+scale=bark, fbins=262, fmin=32.90, fmax=22050.00, sllen=18060, trlen=4516
+  0%|                                                                              | 0/50 [00:00<?, ?it/s]track: AM Contra - Heart Peripheral
+getting audio
+applying separation
+n chunks: 4
+...
+<output truncated>
+...
+vocals          ==> SDR:   4.791  SIR:   7.794  ISR:   8.579  SAR:   4.500
+drums           ==> SDR:   4.846  SIR:   8.062  ISR:   8.649  SAR:   4.953
+bass            ==> SDR:   4.690  SIR:   8.778  ISR:   5.558  SAR:   4.193
+other           ==> SDR:   3.273  SIR:   2.532  ISR:   8.065  SAR:   4.422
+```
+To get the total SDR, simply sum the four target SDRs and divide by 4:
+```
+SDR_tot = (SDR_vocals + SDR_drums + SDR_bass + SDR_other)/4.0
+```
+
 </details>
 
 ## Theory
@@ -207,6 +240,13 @@ In 2023, I chose to revisit the code of xumx-sliCQ for submission to the [Cadenz
 <summary>Past work</summary>
 
 TODO: fill this in with everything!
+
+</details>
+
+<details>
+<summary>Acknowledgements</summary>
+
+TODO: as usual, sigsep etc. musdb18-hq etc.
 
 </details>
 
@@ -277,26 +317,21 @@ with torch.no_grad():
      y_est = islicqt(Ycomplex_est)
 ```
 
-Without this, the epoch time goes from 1-5 minutes to 30+ minutes. However, by disabling the gradient, the SDR loss can't influence the network performance. In practice, I found that the MSE is an acceptable correlate to SDR performance, and dropped the isliCQT and SDR loss calculation.
+Without this, the epoch time goes from 1-5 minutes to 25+ minutes, making training unfeasible. However, by disabling the gradient, the SDR loss can't influence the network performance. In practice, I found that the MSE was an acceptable correlate to SDR performance, and dropped the isliCQT and SDR loss calculation.
 
 </details>
 
 <details>
 <summary>Replacing the overlap-add with pure convolutional layers</summary>
 
-TODO: missing overlap-add->pure conv section
+A quirk of the sliCQT is that rather than the familiar 2 dimensions of time and frequency, it has 3 dimensions: slice, time-per-slice, and frequency. Adjacent slices have a 50% overlap with one another and must be summed to get the true spectrogram in a destructive operation (50% of the time coefficients are lost, with no inverse).
 
-A quirk of the sliCQT is that rather than the familiar 2 dimensions of time and frequency, it has 3 dimensions: slice, time-per-slice, and frequency. Adjacent slices have a 50% overlap with one another and must be summed to get the true spectrogram in a destructive operation (50% of the time coefficients are lost, with no inverse):
+In xumx-sliCQ, an extra transpose convolutional layer with stride 2 is used to grow the time coefficients back to the original size after the 4-layer CDAE, to undo the destruction of the overlap-add.
 
-[insert example here]
+In xumx-sliCQ-V2, the first convolutional layer takes the overlap into account by setting the kernel and stride to the window and hop size of the destructive overlap-add. The result is that the input is downsampled in a way that is recovered by the final transpose convolution layer in the 4-layer CDAE, eliminating the need for an extra upsampling layer.
 
-In xumx-sliCQ, an extra transpose convolutional layer with stride 2 is used to grow the time coefficients back to the original size after the 4-layer CDAE, to undo the destruction of the overlap-add:
-
-[insert example here]
-
-In xumx-sliCQ-V2, the first convolutional layer takes the overlap into account by setting the kernel and stride to the window and hop size of the destructive overlap-add. The result is that the input is downsampled in a way that is recovered by the final transpose convolution layer in the 4-layer CDAE, eliminating the need for an extra upsampling layer:
-
-[insert example here]
+Diagram (shown for one time-frequency block):
+![slicq-overlap-improved](.github/slicq_overlap_improved.png)
 
 By this point, I had a model that scored **4.1 dB** with 28 MB of weights using magnitude MSE loss.
 
@@ -307,9 +342,9 @@ By this point, I had a model that scored **4.1 dB** with 28 MB of weights using 
 
 Borrowing from [Danna-Sep](https://github.com/yoyololicon/danna-sep), one of the [top performers in the MDX 21 challenge](https://github.com/yoyololicon/music-demixing-challenge-ismir-2021-entry), the differentiable Wiener-EM step is used inside the neural network during training, such that the output of xumx-sliCQ-V2 is a complex sliCQT, and the complex MSE loss function is used instead of the magnitude MSE loss. Wiener-EM is applied separately in each frequency block as shown in the [architecture diagram at the top of the README](#key-concepts).
 
-In xumx-sliCQ, Wiener-EM was only applied in the STFT domain as a post-processing step. The network was trained using magnitude MSE loss. The waveform estimate of xumx-sliCQ combined the estimate of the target magnitude with the phase of the mix (noisy phase or mix phase).
-
 This got the score to **4.24 dB** with 28 MB of weights trained with complex MSE loss (0.0395).
+
+In xumx-sliCQ, Wiener-EM was only applied in the STFT domain as a post-processing step. The network was trained using magnitude MSE loss. The waveform estimate of xumx-sliCQ combined the estimate of the target magnitude with the phase of the mix (noisy phase or mix phase).
 
 </details>
 
@@ -352,10 +387,5 @@ drum_mask + vocals_mask + other_mask + bass_mask = 1.0
 In xumx-sliCQ-V2, I added a second loss term called the mask sum loss, which is the MSE between the sum of the four target masks and a matrix of 1s. This needs a small code change where both the complex slicqt (after Wiener-EM) and the sigmoid masks are returned in the training loop.
 
 This got the score to **4.4 dB** with 60 MB of weights trained with complex MSE loss + mask sum loss of 0.0405.
-
-</details>
-
-<details>
-<summary>Reducing the time downsampling</summary>
 
 </details>
