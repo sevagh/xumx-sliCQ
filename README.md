@@ -1,5 +1,7 @@
 # xumx-sliCQ
 
+[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)
+
 A variant of [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) that replaces the STFT with the [sliCQ transform](https://github.com/sevagh/nsgt) ([Balazs et al. 2011](http://ltfat.org/notes/ltfatnote018.pdf) and [Holighaus et al. 2012](https://arxiv.org/abs/1210.0084)) and uses convolutional layers (based loosely on [Grais, Zhao, and Plumbley 2019](https://arxiv.org/abs/1910.09266)).
 
 Transforms with nonuniform frequency spacing can better represent the tonal and transient characteristics of musical signals, such as the CQT. The sliCQ transform is one such transform:
