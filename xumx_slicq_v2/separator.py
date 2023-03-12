@@ -19,12 +19,16 @@ class Separator(nn.Module):
     def load(
         cls,
         chunk_size: int = 2621440,
-        model_path: str = Optional[str],
+        model_path: Optional[str] = None,
+        realtime: bool = False,
         device: Union[str, torch.device] = "cpu",
     ):
         # load the pretrained model unless a different one is specified
         if model_path is None:
-            model_path = "/xumx-sliCQ-V2/pretrained_model"
+            if not realtime:
+                model_path = "/xumx-sliCQ-V2/pretrained_model"
+            else:
+                model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"
         model_path = Path(model_path)
 
         # when path exists, we assume its a custom model saved locally

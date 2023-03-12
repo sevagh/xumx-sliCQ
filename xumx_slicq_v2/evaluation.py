@@ -50,11 +50,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--track", type=str, default=None, help="evaluate only this track name"
     )
-
+    parser.add_argument(
+        "--realtime", action="store_true", default=False, help="use realtime pretrained model"
+    )
     parser.add_argument(
         "--model-path", type=str, default=None, help="custom model path"
     )
-
     parser.add_argument(
         "--subset", type=str, default="test", help="MUSDB subset (`train`/`test`)"
     )
@@ -77,6 +78,7 @@ if __name__ == "__main__":
     separator = Separator.load(
         chunk_size=args.chunk_size,
         device=device,
+        realtime=args.realtime,
         model_path=args.model_path,
     )
 

@@ -3,6 +3,8 @@
 *.chkpnt
 *.pth
 *.json
+*.wav
+!gspi.wav
 /plots
 logdir
 !pretrained_model/*.pth

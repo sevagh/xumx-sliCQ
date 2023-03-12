@@ -1,15 +1,20 @@
 <!--
 # META:TODO
 
-1. Code
-    1. diagrams (inkscape, block spectrograms, try mermaid?)
-1. git tag as "v1.0.0a" when ready
+1. finish realtime training + evaluation
+1. measure inference time measurements in inference (CPU, GPU) for README
+    1. run on 50 musdb18-hq test songs
+    1. cadenza flag for inference script
+1. git tag with "v1.0.0a" when pretrained models are ready
+1. arxiv paper
+1. cadenza challenge submission
+1. cadenza challenge paper
+1. MILA tech talk 2
 -->
 
 # xumx-sliCQ-V2
 
-[![Pypi](https://img.shields.io/pypi/v/openunmix.svg)](https://pypi.python.org/pypi/openunmix)
-[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)
+<!--[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509) -->
 
 xumx-sliCQ-V2 is a PyTorch neural network for music demixing, trained only on [MUSDB18-HQ](https://zenodo.org/record/3338373).
 
@@ -20,24 +25,34 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
-It beats the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.\*\*
+**The realtime model scores 4.2 dB and runs 5x faster<sup>†</sup>** than the offline model.
 
-**xumx-sliCQ-V2 is fast and light!** TODO TensorRT etc. here
+Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
 
-(TODO cadenza challenge results) here I worked on xumx-sliCQ-V2 for the Cadenza Challenge, where it placed **14th place** in task A of the challenge. Cite xumx-sliCQ-V2:
+Submission to arXiv coming soon!
+
+<!--
+Cite xumx-sliCQ-V2:
 ```
 (TODO latex citation block here)
-```
+write arxiv paper
+```-->
 
 <sub>
 
-\*: Pretrained weights for xumx-sliCQ-V2 are stored [in this repository](./pretrained_model) with Git LFS
+\*: Pretrained weights for xumx-sliCQ-V2 are stored in this repo with Git LFS: [offline](./pretrained_model), [realtime](./pretrained_model_realtime)
 
 </sub>
 
 <sub>
 
-\*\*: UMX and X-UMX were independently re-evaluated as part of xumx-sliCQ: [1](https://github.com/sevagh/xumx_slicq_extra/blob/main/old-latex/mdx-submissions21/paper.md#results), [2](https://github.com/sevagh/xumx_slicq_extra)
+†: See the [inference section below](#run) for measurements
+
+</sub>
+
+<sub>
+
+‡: UMX and X-UMX were independently re-evaluated as part of xumx-sliCQ: [1](https://github.com/sevagh/xumx_slicq_extra/blob/main/old-latex/mdx-submissions21/paper.md#results), [2](https://github.com/sevagh/xumx_slicq_extra)
 
 </sub>
 
@@ -55,22 +70,29 @@ Convolutional network applied to ragged sliCQT (time-frequency blocks with diffe
 
 ### Prerequisites
 
-You can use Python >= 3.8 with the pip package directly, or Docker for convenience. To use your GPU, you need the NVIDIA CUDA Toolkit and an NVIDIA GPU. For Docker + GPU, you also need the [nvidia-docker 2.0 runtime](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker). For your own training, tuning, and evaluation, you need the [MUSDB18-HQ dataset](https://zenodo.org/record/3338373).
+You need Python + pip >= 3.8 or Docker. To use your GPU, you need the NVIDIA CUDA Toolkit and an NVIDIA CUDA-capable GPU. For Docker + GPU, you also need the [nvidia-docker 2.0 runtime](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker). For your own training, tuning, and evaluation, you need the [MUSDB18-HQ dataset](https://zenodo.org/record/3338373).
 
 ### Install
 
-xumx-sliCQ-V2 is available on [PyPI.org](todo-link-here):
-TODO ensure inference.py works
-TODO try-except blocks on scripts w/ optional deps e.g. training tuning
-TODO build wheel, publish to pypi.org, package 60MB weights in wheel
+If you want to use Docker (**recommended**), git clone the source code and build the container:
 ```
-pip install xumx_slicq_v2           # basic inference
-
-pip install xumx_slicq_v2[tensorrt] # tensorrt inference
-pip install xumx_slicq_v2[devel]    # training, tuning, development, etc.
+$ git clone https://github.com/sevagh/xumx-sliCQ-V2
+$ cd ./xumx-sliCQ-V2
+$ docker build -t "xumx-slicq-v2" .
 ```
 
-TODO write python usage here with inference demo cpu/gpu?
+The container is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) to include features and optimizations for to NVIDIA GPUs, such as automatic [TF32 for Ampere+](https://blogs.nvidia.com/blog/2020/05/14/tensorfloat-32-precision-format/), [bfloat16 support for Ampere+](https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html), and more.
+
+To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
+
+I only provide docker run instructions, but you can (probably) use pip to install xumx-sliCQ-V2 from git and run it that way:
+```
+# basic inference
+pip install 'xumx_slicq_v2 @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
+
+# training, tuning, development, etc.
+pip install 'xumx_slicq_v2[devel] @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
+```
 
 <details>
 <summary>List of all scripts</summary>
@@ -79,11 +101,9 @@ TODO write python usage here with inference demo cpu/gpu?
 |:-|:-|:-|
 | For end users | |
 | xumx_slicq_v2.inference | Demix mixed songs | CPU **or** CUDA GPU |
-| xumx_slicq_v2.tensorrt_inference | Demix mixed songs with TensorRT | CUDA GPU |
 | For developers | |
 | xumx_slicq_v2.evaluation | Evaluate pretrained networks | CPU |
 | xumx_slicq_v2.training | Train the network | CUDA GPU |
-| xumx_slicq_v2.tensorrt_export | Convert pretrained model to TensorRT | CUDA GPU |
 | xumx_slicq_v2.optuna | Optuna hyperparam tuning | CUDA GPU |
 | xumx_slicq_v2.slicqfinder | Random sliCQT param search | CPU **or** CUDA GPU |
 | xumx_slicq_v2.visualization | Generate spectrograms | CPU |
@@ -92,39 +112,12 @@ If you installed the package with pip, run them like `python -m xumx_slicq_v2.$s
 
 </details>
 
-### Inference
+### Run
 
-### TensorRT inference
+Inference:
 
-TODO: <https://pytorch.org/TensorRT/getting_started/getting_started_with_python_api.html#getting-started-with-python-api>
+TODO: put instructions here
 
-### Training, development with Docker
-
-<details>
-<summary>Why Docker</summary>
-
-* When revisiting my old code, [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ), I realized the dev environment was not reproducible
-* Within the last year, I have grown to dislike Conda, setuptools, pip, requirements.txt files, and everything related to packaging and dependency management for Python
-* Docker lets me deliver an image that works without worrying about the user's host environment, and lets me mix multiple paradigms of Python packaging without creating overly-complex install instructions
-    * Docker can be run on Windows and OSX, whereas if I don't use Docker, I can only provide instructions for Linux (my OS)
-</details>
-
-### Docker instructions
-
-Git clone and cd to the repository:
-```
-$ git clone https://github.com/sevagh/xumx-sliCQ-V2 && cd ./xumx-sliCQ-V2
-```
-Build the training/development container:
-
-```
-$ docker build -t "xumx-slicq-v2" .
-```
-It is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) to include features and optimizations for to NVIDIA GPUs, such as automatic [TF32 for Ampere+](https://blogs.nvidia.com/blog/2020/05/14/tensorfloat-32-precision-format/), [bfloat16 support for Ampere+](https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html), and more.
-
-
-To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
-    
 <details>
 <summary>Training</summary>
 
@@ -209,35 +202,24 @@ SDR_tot = (SDR_vocals + SDR_drums + SDR_bass + SDR_other)/4.0
 
 ## Theory
 
-<details>
-<summary>Motivation</summary>
+### Motivation
 
 The sliced Constant-Q Transform (sliCQT) is a realtime implementation of the Nonstationary Gabor Transform (NSGT), which is a generalized nonuniform time-frequency transform with perfect inverse. Nonuniform time-frequency transforms are better suited to representing sounds with time-varying frequencies, such as music and speech. The STFT is limited due to its use of fixed windows and the time-frequency uncertainty principle of Gabor.
 
 The NSGT can be used to implement a Constant-Q Transform (logarithmic scale), but it can use any type of frequency scale. In xumx-sliCQ and xumx-sliCQ-V2, the same Bark scale is used (262 Bark frequency bins from 32.9-22050 Hz).
 
-</details>
-
-<details>
-<summary>Cadenza Challenge 2023</summary>
-
-In 2021, I worked on xumx-sliCQ to submit to the MDX 21 ([Music Demixing Challenge 2021](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021) on AICrowd), and got my paper published to [the MDX 21 workshop](https://mdx-workshop.github.io/proceedings/hanssian.pdf) at ISMIR 2021 (and [arXiv](https://arxiv.org/abs/2112.05509)). The time-frequency uncertainty principle aligned with my desired thesis topic at the Music Technology Master's program at McGill.
-
-In 2023, I chose to revisit the code of xumx-sliCQ for submission to the [Cadenza Challenge](http://cadenzachallenge.org/), which is a music demixing challenge with the additional context of hearing loss and accessibility. Nonuniform time-frequency transforms, like the sliCQT, are related to the nolinear human auditory system, and I had specific auditory motivations for choosing the Bark scale for the sliCQT in xumx-sliCQ.
-
-</details>
-
 <details>
 <summary>Past work</summary>
 
-TODO: fill this in with everything!
+I've worked on many related projects leading up to xumx-sliCQ and xumx-sliCQ-V2:
+* Realtime Harmonic/Percussive Source Separation: [Real-time-HPSS](https://github.com/sevagh/Real-Time-HPSS)
+* Realtime GPU-accelerated Harmonic/Percussive Source Separation: [Zen](https://github.com/sevagh/Zen)
+* Neural network for music source separation with Nonstationary Gabor Transforms: [MiXiN](https://github.com/sevagh/MiXiN)
+* Experiments on music source separation algorithms with spectrogram masking with nonuniform time-frequency transforms: [Music-Separation-TF](https://github.com/sevagh/Music-Separation-TF)
 
-</details>
+In 2021, I worked on xumx-sliCQ (V1), [the first variant](https://github.com/sevagh/xumx-sliCQ), to submit to the MDX 21 ([Music Demixing Challenge 2021](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021) on AICrowd), and got my paper published to [the MDX 21 workshop](https://mdx-workshop.github.io/proceedings/hanssian.pdf) at ISMIR 2021 (and [arXiv](https://arxiv.org/abs/2112.05509)). The time-frequency uncertainty principle aligned with my desired thesis topic at the Music Technology Master's program at McGill.
 
-<details>
-<summary>Acknowledgements</summary>
-
-TODO: as usual, sigsep etc. musdb18-hq etc.
+In 2023, I chose to revisit the code of xumx-sliCQ for submission to the [First Cadenza Challenge (CAD1)](http://cadenzachallenge.org/), which is a music demixing challenge with the additional context of hearing loss and accessibility. Nonuniform time-frequency transforms, like the sliCQT, are related to the nolinear human auditory system, and I had specific auditory motivations for choosing the Bark scale for the sliCQT in xumx-sliCQ.
 
 </details>
 
@@ -291,6 +273,15 @@ An epoch takes ~170s (train + validation) on my RTX 3090 with 24GB of GPU memory
 <summary>Using the full frequency bandwidth</summary>
 
 In xumx-sliCQ, I didn't use frequency bins above 16,000 Hz in the neural network; the demixing was only done on the frequency bins lower than that limit, copying the `umx` pretrained model of UMX. UMX's other pretrained model, `umxhq`, uses the full spectral bandwidth. In xumx-sliCQ-V2, I removed the bandwidth parameter to pass all the frequency bins of the sliCQT through the neural network.
+
+</details>
+
+<details>
+<summary>Removing dilations from the convolution layers</summary>
+
+In the CDAE of xumx-sliCQ, I used a dilation of 2 in the time axis to arbitrarily increase the receptive field without paying attention to music demixing quality (because dilations sound cool).
+
+In xumx-sliCQ-V2, I didn't use any dilations since I had no reason to.
 
 </details>
 
@@ -378,5 +369,10 @@ drum_mask + vocals_mask + other_mask + bass_mask = 1.0
 In xumx-sliCQ-V2, I added a second loss term called the mask sum loss, which is the MSE between the sum of the four target masks and a matrix of 1s. This needs a small code change where both the complex slicqt (after Wiener-EM) and the sigmoid masks are returned in the training loop.
 
 This got the score to **4.4 dB** with 60 MB of weights trained with complex MSE loss + mask sum loss of 0.0405.
+
+</details>
+
+<details>
+<summary>Realtime variant</summary>
 
 </details>
