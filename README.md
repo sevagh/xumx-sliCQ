@@ -9,7 +9,6 @@
 # xumx-sliCQ-V2
 
 [![Pypi](https://img.shields.io/pypi/v/openunmix.svg)](https://pypi.python.org/pypi/openunmix)
-[![Dockerhub](https://img.shields.io/docker/pulls/MIR-MU/pv211-utils)](https://hub.docker.com/repository/docker/miratmu/pv211-utils)
 [![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)
 
 xumx-sliCQ-V2 is a PyTorch neural network for music demixing, trained only on [MUSDB18-HQ](https://zenodo.org/record/3338373).
@@ -73,16 +72,8 @@ pip install xumx_slicq_v2[devel]    # training, tuning, development, etc.
 
 TODO write python usage here with inference demo cpu/gpu?
 
-A minimal inference container is also available on [Dockerhub](todo-link-here):
-Fix up Dockerfile.inference with inference entrypoint, build + publish to dockerhub
-```
-docker pull sevagh2/xumx-slicq-v2-inference
-```
-
-TODO write docker usage here with inference demo cpu/gpu?
-
 <details>
-<summary>List of all scripts of xumx-sliCQ-V2</summary>
+<summary>List of all scripts</summary>
 
 | Script | Description | Device |
 |:-|:-|:-|
@@ -124,7 +115,7 @@ Git clone and cd to the repository:
 ```
 $ git clone https://github.com/sevagh/xumx-sliCQ-V2 && cd ./xumx-sliCQ-V2
 ```
-Build the development container:
+Build the training/development container:
 
 ```
 $ docker build -t "xumx-slicq-v2" .

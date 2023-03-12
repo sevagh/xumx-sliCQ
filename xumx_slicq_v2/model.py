@@ -18,7 +18,7 @@ from .transforms import (
     make_filterbanks,
     NSGTBase,
 )
-from .phase import blockwise_wiener
+from .phase import blockwise_wiener, blockwise_phasemix_sep
 import copy
 
 
@@ -35,6 +35,7 @@ class Unmix(nn.Module):
         freq_thresh_small: int = 10,
         freq_thresh_medium: int = 20,
         time_filter_2: int = 4,
+        realtime: bool = False,
         input_means=None,
         input_scales=None,
     ):
@@ -60,6 +61,7 @@ class Unmix(nn.Module):
                     freq_thresh_medium=freq_thresh_medium,
                     freq_filter_large=freq_filter_large,
                     time_filter_2=time_filter_2,
+                    realtime=realtime,
                     input_mean=input_mean,
                     input_scale=input_scale,
                 )
@@ -76,13 +78,13 @@ class Unmix(nn.Module):
             p.grad = None
         self.eval()
 
-    def forward(self, Xcomplex, return_masks=False, wiener=True) -> Tensor:
+    def forward(self, Xcomplex, return_masks=False) -> Tensor:
         Ycomplex = [None]*len(Xcomplex)
         Ymasks = [None]*len(Xcomplex)
 
         for i, Xblock in enumerate(Xcomplex):
             Ycomplex_block, Ymask_block = self.sliced_umx[i](
-                Xblock, torch.abs(torch.view_as_complex(Xblock)), wiener=wiener
+                Xblock, torch.abs(torch.view_as_complex(Xblock))
             )
             Ycomplex[i] = Ycomplex_block
             Ymasks[i] = Ymask_block
@@ -105,6 +107,7 @@ class _SlicedUnmix(nn.Module):
         freq_thresh_medium: int = 20,
         freq_filter_large: int = 5,
         time_filter_2: int = 3,
+        realtime: bool = False,
         input_mean=None,
         input_scale=None,
     ):
@@ -131,8 +134,13 @@ class _SlicedUnmix(nn.Module):
         window = nb_t_bins
         hop = window // 2
 
+        if realtime:
+            first_conv_module = _CausalConv2d
+        else:
+            first_conv_module = Conv2d
+
         encoder.extend([
-            Conv2d(
+            first_conv_module(
                 nb_channels,
                 hidden_size_1,
                 (freq_filter, window),
@@ -183,6 +191,7 @@ class _SlicedUnmix(nn.Module):
 
         self.cdaes = nn.ModuleList([cdae_1, cdae_2, cdae_3, cdae_4])
         self.mask = True
+        self.realtime = realtime
 
         if input_mean is not None:
             input_mean = torch.from_numpy(-input_mean).float()
@@ -205,7 +214,7 @@ class _SlicedUnmix(nn.Module):
             p.grad = None
         self.eval()
 
-    def forward(self, xcomplex: Tensor, x: Tensor, wiener: bool = True) -> Tensor:
+    def forward(self, xcomplex: Tensor, x: Tensor) -> Tensor:
         mix = x.detach().clone()
 
         x_shape = x.shape
@@ -228,6 +237,8 @@ class _SlicedUnmix(nn.Module):
                 #print(f"{x_tmp.shape=}")
                 x_tmp = layer(x_tmp)
 
+            # crop if necessary
+            x_tmp = x_tmp[..., : nb_f_bins, : nb_slices*nb_t_bins]
             x_tmp = x_tmp.reshape(x_shape)
 
             # store the sigmoid/soft mask before multiplying with mix
@@ -239,11 +250,35 @@ class _SlicedUnmix(nn.Module):
 
             ret[i] = x_tmp
 
-        # embedded blockwise wiener-EM (flattened in function then unflattened)
-        if wiener:
-            ret = blockwise_wiener(xcomplex, ret)
+        # use phasemix for realtime model
+        if self.realtime:
+            ret = blockwise_phasemix_sep(xcomplex, ret)
         else:
-            ret = phasemix_sep(xcomplex, ret)
+            # embedded blockwise wiener-EM (flattened in function then unflattened)
+            ret = blockwise_wiener(xcomplex, ret)
 
         # also return the mask
         return ret, ret_masks
+
+
+class _CausalConv2d(torch.nn.Conv2d):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size,
+                 stride=1,
+                 bias=True):
+        self.__padding = kernel_size[1] - 1
+
+        super(_CausalConv2d, self).__init__(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=0,
+            bias=bias)
+
+    def forward(self, x):
+        x = F.pad(x, (self.__padding, 0))
+        result = super(_CausalConv2d, self).forward(x)
+        return result

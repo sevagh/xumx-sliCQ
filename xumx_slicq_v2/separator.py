@@ -191,6 +191,7 @@ def load_target_models(
 
     xumx_model = Unmix(
         jagged_slicq_cnorm,
+        realtime=results["args"]["realtime"],
     )
 
     xumx_model.load_state_dict(state, strict=False)

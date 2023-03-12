@@ -193,6 +193,12 @@ def training_main():
         help="skip dataset statistics calculation",
     )
     parser.add_argument(
+        "--realtime",
+        action="store_true",
+        default=False,
+        help="realtime variant (causal convs, no wiener)",
+    )
+    parser.add_argument(
         "--seq-dur",
         type=float,
         default=2.0,
@@ -340,6 +346,7 @@ def training_main():
 
     unmix = model.Unmix(
         jagged_slicq_cnorm,
+        realtime=args.realtime,
         input_means=scaler_mean,
         input_scales=scaler_std,
     ).to(device, memory_format=torch.channels_last)

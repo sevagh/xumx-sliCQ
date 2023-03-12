@@ -15,6 +15,7 @@
         "nb_workers": 8,
         "patience": 1000,
         "quiet": false,
+        "realtime": false,
         "samples_per_track": 64,
         "seed": 42,
         "seq_dur": 2.0,
