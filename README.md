@@ -6,6 +6,8 @@
     1. run on 50 musdb18-hq test songs
     1. cadenza flag for inference script
 1. git tag with "v1.0.0a" when pretrained models are ready
+1. pip wheel is fine w/ download fn, need public repo for that
+    make public before pip wheel
 1. arxiv paper
 1. cadenza challenge submission
 1. cadenza challenge paper
@@ -14,7 +16,8 @@
 
 # xumx-sliCQ-V2
 
-<!--[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509) -->
+<!--[![PyPI Wheel](https://img.shields.io/pypi/v/openunmix.svg)](https://pypi.python.org/pypi/openunmix)
+[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)-->
 
 xumx-sliCQ-V2 is a PyTorch neural network for music demixing, trained only on [MUSDB18-HQ](https://zenodo.org/record/3338373).
 
@@ -25,11 +28,9 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
-**The realtime model scores 4.2 dB and runs 5x faster<sup>†</sup>** than the offline model.
+**The realtime model scores 4.07 dB and takes an average of 2 seconds to demix a song with a GPU and 11 seconds with the CPU.<sup>†</sup>**
 
 Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
-
-Submission to arXiv coming soon!
 
 <!--
 Cite xumx-sliCQ-V2:
@@ -55,6 +56,12 @@ write arxiv paper
 ‡: UMX and X-UMX were independently re-evaluated as part of xumx-sliCQ: [1](https://github.com/sevagh/xumx_slicq_extra/blob/main/old-latex/mdx-submissions21/paper.md#results), [2](https://github.com/sevagh/xumx_slicq_extra)
 
 </sub>
+
+### Roadmap
+
+* Publish xumx_slicq_v2 to pypi.org for easier installation
+* Submit paper to arXiv
+* Submission to [Cadenza Challenge](http://cadenzachallenge.org/)
 
 ## Key concepts
 
@@ -85,14 +92,14 @@ The container is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc
 
 To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
 
-I only provide docker run instructions, but you can (probably) use pip to install xumx-sliCQ-V2 from git and run it that way:
-```
+I only provide Docker instructions; pip instructions are coming soon!
+<!--```
 # basic inference
-pip install 'xumx_slicq_v2 @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
+$ pip install 'xumx_slicq_v2 @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
 
 # training, tuning, development, etc.
-pip install 'xumx_slicq_v2[devel] @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
-```
+$ pip install 'xumx_slicq_v2[devel] @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
+```-->
 
 <details>
 <summary>List of all scripts</summary>
@@ -114,9 +121,29 @@ If you installed the package with pip, run them like `python -m xumx_slicq_v2.$s
 
 ### Run
 
-Inference:
+**Pip**: coming soon! I need to add code to download the pretrained weights from GitHub once I make the repo public
 
-TODO: put instructions here
+**Docker**: run inference to generate outputs on a folder containing mixed song wav files:
+
+```
+$ docker run --rm -it \
+    -v /path/to/input/songs/:/input \
+    -v /path/to/demixed/outputs:/output \
+    python -m xumx_slicq_v2.inference --help
+
+#add below lines for gpu support
+#--gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
+#python -m xumx_slicq_v2.inference --cuda
+```
+
+Inference time for the realtime variant is **5x faster than the offline model with the CPU**, measuring the average time taken to demix the 50 MUSDB18-HQ test tracks:
+| Model | Device | Inference time (s, avg per track) |
+|:-|:-|:-|
+| Offline | CPU | 23.17 |
+| Realtime | CPU | 11.35 |
+| Realtime | GPU | 2.08 |
+
+The offline model has to trade off speed and memory usage from the embedded Wiener-EM step, so I only use it for offline CPU inference.
 
 <details>
 <summary>Training</summary>
@@ -136,6 +163,8 @@ The Tensorboard training web dashboard is launched by the training script: <http
 **To persist the model**, you can volume mount a host volume to `:/model` (as in the command above). Killing and relaunching the container with a persisted model will continue the training process. If not, the trained model will disappear when the container is killed.
 
 The lowest lost achieved (complex cross-target MSE + mask sum MSE loss) was 0.0405 at epoch 198. The average epoch time was around 170 seconds, or just under 3 minutes, with a batch size of 64 (and 8 cpu workers for the dataloader).
+
+The lowest lost achieved for the realtime model was 0.0437 at epoch 161. The average epoch time was around 110 seconds, or just under 2 minutes, with a batch size of 64 (and 8 cpu workers for the dataloader).
 
 </details>
 
@@ -211,7 +240,7 @@ The NSGT can be used to implement a Constant-Q Transform (logarithmic scale), bu
 <details>
 <summary>Past work</summary>
 
-I've worked on many related projects leading up to xumx-sliCQ and xumx-sliCQ-V2:
+I've worked on several related projects leading up to xumx-sliCQ and xumx-sliCQ-V2:
 * Realtime Harmonic/Percussive Source Separation: [Real-time-HPSS](https://github.com/sevagh/Real-Time-HPSS)
 * Realtime GPU-accelerated Harmonic/Percussive Source Separation: [Zen](https://github.com/sevagh/Zen)
 * Neural network for music source separation with Nonstationary Gabor Transforms: [MiXiN](https://github.com/sevagh/MiXiN)
@@ -261,7 +290,7 @@ The code changes were the following:
         ```
     1. Using AMP (Automatic Mixed Precision) with bfloat16 (on CUDA and CPU) (greatly reduces memory during training, allowing a larger batch size):
         ```
-        with torch.autocast("cuda", dtype=torch.bfloat16) \
+        with torch.autocast("cuda", dtype=torch.bfloat16),
                 torch.autocast("cpu", dtype=torch.bfloat16):
         ```
 
@@ -374,5 +403,9 @@ This got the score to **4.4 dB** with 60 MB of weights trained with complex MSE 
 
 <details>
 <summary>Realtime variant</summary>
+
+For a future realtime demixing project, I decided to create a realtime variant of xumx-sliCQ-V2. To support realtime inputs:
+* I added left padding of the first convolution layer, such that the intermediate representations throughout the autoencoder are only derived from causal inputs
+* I replaced the resource-intensive Wiener-EM target maximization with the naive mix-phase approach, which is computationally much lighter (simply combine the target magnitude slicqt with the phase of the mix)
 
 </details>

@@ -38,6 +38,9 @@ setup(
     },
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        'xumx_slicq_v2/data': ['pretrained_model*/*']
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Programming Language :: Python :: 3.8",

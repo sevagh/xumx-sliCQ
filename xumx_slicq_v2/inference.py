@@ -43,6 +43,12 @@ def inference_main():
         help="Input dir (default: /input)",
     )
     parser.add_argument(
+        "--audio-backend",
+        type=str,
+        default="soundfile",
+        help="Set torchaudio backend (`sox_io`, `sox`, `soundfile` or `stempeg`), defaults to `soundfile`",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="/output",
@@ -84,7 +90,7 @@ def inference_main():
 
     args = parser.parse_args()
 
-    torchaudio.set_audio_backend("soundfile")
+    torchaudio.set_audio_backend(args.audio_backend)
 
     device = torch.device("cuda" if args.cuda else "cpu")
     print("Using ", device)
@@ -127,7 +133,7 @@ def inference_main():
             target_path = str(outdir / Path(target).with_suffix(args.ext))
             torchaudio.save(
                 target_path,
-                torch.squeeze(estimate).detach(),
+                torch.squeeze(estimate).detach().cpu(),
                 encoding="PCM_F", # pcm float for dtype=float32 wav
                 sample_rate=separator.sample_rate,
             )
