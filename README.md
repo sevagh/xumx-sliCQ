@@ -1,16 +1,11 @@
 <!--
 # META:TODO
 
-1. finish realtime training + evaluation
-1. measure inference time measurements in inference (CPU, GPU) for README
-    1. run on 50 musdb18-hq test songs
-    1. cadenza flag for inference script
 1. git tag with "v1.0.0a" when pretrained models are ready
 1. pip wheel is fine w/ download fn, need public repo for that
     make public before pip wheel
 1. arxiv paper
-1. cadenza challenge submission
-1. cadenza challenge paper
+1. cadenza challenge submission + cadenza flag for inference script + paper
 1. MILA tech talk 2
 -->
 
@@ -239,12 +234,6 @@ The NSGT can be used to implement a Constant-Q Transform (logarithmic scale), bu
 
 <details>
 <summary>Past work</summary>
-
-I've worked on several related projects leading up to xumx-sliCQ and xumx-sliCQ-V2:
-* Realtime Harmonic/Percussive Source Separation: [Real-time-HPSS](https://github.com/sevagh/Real-Time-HPSS)
-* Realtime GPU-accelerated Harmonic/Percussive Source Separation: [Zen](https://github.com/sevagh/Zen)
-* Neural network for music source separation with Nonstationary Gabor Transforms: [MiXiN](https://github.com/sevagh/MiXiN)
-* Experiments on music source separation algorithms with spectrogram masking with nonuniform time-frequency transforms: [Music-Separation-TF](https://github.com/sevagh/Music-Separation-TF)
 
 In 2021, I worked on xumx-sliCQ (V1), [the first variant](https://github.com/sevagh/xumx-sliCQ), to submit to the MDX 21 ([Music Demixing Challenge 2021](https://www.aicrowd.com/challenges/music-demixing-challenge-ismir-2021) on AICrowd), and got my paper published to [the MDX 21 workshop](https://mdx-workshop.github.io/proceedings/hanssian.pdf) at ISMIR 2021 (and [arXiv](https://arxiv.org/abs/2112.05509)). The time-frequency uncertainty principle aligned with my desired thesis topic at the Music Technology Master's program at McGill.
 
