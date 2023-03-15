@@ -62,6 +62,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--chunk-size", type=int, default=2621440, help="inference chunk size"
     )
+    parser.add_argument(
+        "--runtime-backend",
+        type=str,
+        default="torch",
+        help="Set model backend (`torch` or `onnxruntime`), defaults to `torch`",
+    )
 
     args = parser.parse_args()
 
@@ -77,6 +83,7 @@ if __name__ == "__main__":
     print("loading separator")
     separator = Separator.load(
         chunk_size=args.chunk_size,
+        runtime_backend=args.runtime_backend,
         device=device,
         realtime=args.realtime,
         model_path=args.model_path,

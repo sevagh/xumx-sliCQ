@@ -9,6 +9,8 @@
 logdir
 !pretrained_model*/*.pth
 !pretrained_model*/*.json
+!pretrained_model*/*.onnx
+!pretrained_model*/*.ts
 *.whl
 *.egg-info
 /build

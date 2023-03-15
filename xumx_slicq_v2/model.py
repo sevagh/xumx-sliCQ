@@ -18,7 +18,7 @@ from .transforms import (
     make_filterbanks,
     NSGTBase,
 )
-from .phase import blockwise_wiener, blockwise_phasemix_sep
+from .phase import blockwise_wiener, blockwise_phasemix_sep, abs_of_real_complex
 import copy
 
 
@@ -84,7 +84,7 @@ class Unmix(nn.Module):
 
         for i, Xblock in enumerate(Xcomplex):
             Ycomplex_block, Ymask_block = self.sliced_umx[i](
-                Xblock, torch.abs(torch.view_as_complex(Xblock))
+                Xblock, abs_of_real_complex(Xblock)
             )
             Ycomplex[i] = Ycomplex_block
             Ymasks[i] = Ymask_block

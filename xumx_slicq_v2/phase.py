@@ -88,9 +88,22 @@ def blockwise_phasemix_sep(X_block, Ymag_block):
     Xphase_block = _atan2(X_block[..., 1], X_block[..., 0])
 
     # phasemix-sep all targets at once
-    Ycomplex_block = torch.empty((4, *X_block.shape,), dtype=X_block.dtype, device=X_block.device)
+    Ycomplex_block_real = torch.empty_like(Ymag_block)
+    Ycomplex_block_imag = torch.empty_like(Ymag_block)
 
-    Ycomplex_block[:, ..., 0] = Ymag_block[:, ...] * torch.cos(Xphase_block)
-    Ycomplex_block[:, ..., 1] = Ymag_block[:, ...] * torch.sin(Xphase_block)
+    Ycomplex_block_real = Ymag_block[:, ...] * torch.cos(Xphase_block)
+    Ycomplex_block_imag = Ymag_block[:, ...] * torch.sin(Xphase_block)
 
-    return Ycomplex_block
+    Ycomplex = torch.cat(
+        [
+            torch.unsqueeze(Ycomplex_block_real, dim=-1),
+            torch.unsqueeze(Ycomplex_block_imag, dim=-1),
+        ],
+        dim=-1
+    )
+    return Ycomplex
+
+
+def abs_of_real_complex(Xcomplex_real_view):
+    # abs(complex) = sqrt(a^2 + b^2)
+    return torch.sqrt(Xcomplex_real_view[..., 0]**2 + Xcomplex_real_view[..., 1]**2)

@@ -25,7 +25,11 @@ setup(
         "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
     ],
     extras_require={
+        "onnxruntime": [
+            "onnxruntime",
+        ],
         "devel": [
+            "onnxruntime",
             "tensorboard",
             "torchinfo",
             "scikit-learn",

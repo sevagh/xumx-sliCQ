@@ -1,3 +1,5 @@
 .pth filter=lfs diff=lfs merge=lfs -text
 .chkpnt filter=lfs diff=lfs merge=lfs -text
 *.pth filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.ts filter=lfs diff=lfs merge=lfs -text

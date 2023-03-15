@@ -7,7 +7,6 @@ import numpy as np
 import os
 from xumx_slicq_v2 import data
 from .separator import Separator
-
 import argparse
 
 
@@ -70,10 +69,16 @@ def inference_main():
         help="Audio chunk duration in seconds, negative values load full track",
     )
     parser.add_argument(
+        "--runtime-backend",
+        type=str,
+        default="torch",
+        help="Set model backend (`torch` or `onnxruntime`), defaults to `torch`",
+    )
+    parser.add_argument(
         "--cuda",
         action="store_true",
         default=False,
-        help="Use CUDA device for inference",
+        help="Use CUDA device for pytorch inference",
     )
     parser.add_argument(
         "--realtime",
@@ -99,12 +104,10 @@ def inference_main():
     # when using multiple files
     separator = Separator.load(
         device=device,
+        runtime_backend=args.runtime_backend,
         realtime=args.realtime,
         model_path=args.model_path,
     )
-
-    separator.freeze()
-    separator.to(device)
 
     tot_time = 0.
     n_files = 0

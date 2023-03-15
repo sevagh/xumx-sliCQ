@@ -28,6 +28,8 @@ RUN python -m pip install --upgrade pip
 
 COPY --from=devel /wheelhouse /wheelhouse
 
+RUN python -m pip install /wheelhouse/torchaudio*.whl
+
 # install xumx-slicq-v2 from source to get its dependencies
 COPY . /xumx-sliCQ-V2
 WORKDIR /xumx-sliCQ-V2

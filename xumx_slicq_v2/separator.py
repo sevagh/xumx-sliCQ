@@ -13,6 +13,13 @@ from .transforms import (
     NSGTBase,
     make_filterbanks,
 )
+onnxruntime_available = False
+try:
+    import onnx
+    import onnxruntime
+    onnxruntime_available = True
+except ModuleNotFoundError:
+    pass
 
 
 class Separator(nn.Module):
@@ -21,11 +28,13 @@ class Separator(nn.Module):
         cls,
         chunk_size: int = 2621440,
         model_path: Optional[str] = None,
+        runtime_backend: Optional[str] = "torch",
         realtime: bool = False,
         device: Union[str, torch.device] = "cpu",
     ):
         xumx_model, encoder, sample_rate = load_target_models(
             model_path,
+            runtime_backend=runtime_backend,
             realtime=realtime,
             device=device,
         )
@@ -34,16 +43,19 @@ class Separator(nn.Module):
             xumx_model=xumx_model,
             encoder=encoder,
             sample_rate=sample_rate,
+            runtime_backend=runtime_backend,
             chunk_size=chunk_size,
         ).to(device)
 
-        separator.freeze()
+        if runtime_backend == "torch":
+            separator.freeze()
         return separator
 
     def __init__(
         self,
         xumx_model: Unmix = None,
         encoder: Tuple = None,
+        runtime_backend: str = "torch",
         sample_rate: float = 44100.0,
         chunk_size: Optional[int] = 2621440,
         device: str = "cpu",
@@ -57,6 +69,11 @@ class Separator(nn.Module):
         self.chunk_size = chunk_size if chunk_size is not None else sys.maxsize
 
         self.xumx_model = xumx_model
+        self.runtime_backend = runtime_backend
+
+        if self.runtime_backend == "onnxruntime":
+            assert onnxruntime_available
+
         self.nsgt, self.insgt, self.cnorm = encoder
 
     def freeze(self):
@@ -102,10 +119,16 @@ class Separator(nn.Module):
             X = self.nsgt(audio)
             Xmag = self.cnorm(X)
 
-            # embedded wiener
-            Ycomplex_all = self.xumx_model(X)
+            if self.runtime_backend == "torch":
+                Ycomplex_all = self.xumx_model(X)
+                estimates = self.insgt(Ycomplex_all, n_samples)
+            elif self.runtime_backend == "onnxruntime":
+                Ycomplex_all = self.xumx_model.run(
+                    [f"ycomplex{i}" for i in range(len(X))],
+                    {f"xcomplex{i}": X[i].detach().cpu().numpy() for i in range(len(X))}
+                )
+                estimates = self.insgt([torch.as_tensor(Ycomplex_all_) for Ycomplex_all_ in Ycomplex_all], n_samples)
 
-            estimates = self.insgt(Ycomplex_all, n_samples)
             final_estimates.append(estimates)
 
         ests_concat = torch.cat(final_estimates, axis=-1)
@@ -141,8 +164,12 @@ class Separator(nn.Module):
 
 
 def load_target_models(
-        model_path: str, realtime: bool = False, device="cpu"
+        model_path: str, runtime_backend: str = "torch", realtime: bool = False, device="cpu"
 ):
+    # force realtime for onnx
+    if runtime_backend != "torch":
+        realtime = True
+
     if model_path is not None:
         # manual model_path is specified, ensure it exists
         model_path = Path(model_path).expanduser()
@@ -161,8 +188,11 @@ def load_target_models(
             with open(Path(model_path, "xumx_slicq_v2.json"), "r") as stream:
                 results = json.load(stream)
 
-            target_model_path = Path(model_path, "xumx_slicq_v2.pth")
-            state = torch.load(target_model_path, map_location=device)
+            if runtime_backend == "torch":
+                target_model_path = Path(model_path, "xumx_slicq_v2.pth")
+                state = torch.load(target_model_path, map_location=device)
+            else:
+                onnx_model_path = Path(model_path, "xumx_slicq_v2.onnx")
         else:
             # fetch config json and weights from github
             # use xumx-slicq-v1 urls for now while testing the code
@@ -172,9 +202,19 @@ def load_target_models(
             else:
                 json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.json"
                 pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
+                onnx_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.onnx"
 
             results = requests.get(json_url).json()
-            state = torch.hub.load_state_dict_from_url(pth_url, progress=True)
+            if runtime_backend == "torch":
+                state = torch.hub.load_state_dict_from_url(pth_url, progress=True)
+            else:
+                # let's use torch hub's dir to save onnx file
+                hub_dir = torch.hub.get_dir()
+                onnx_dest = Path(hub_dir, "xumx-slicq-v2/xumx_slicq_v2.onnx")
+                with open(onnx_dest, "wb") as onnx_dest_file:
+                    resp = requests.get(onnx_url)
+                    onnx_dest_file.write(resp.content)
+                onnx_model_path = onnx_dest
 
     sample_rate = results["args"]["sample_rate"]
 
@@ -205,13 +245,22 @@ def load_target_models(
 
     jagged_slicq_cnorm = cnorm(jagged_slicq)
 
-    xumx_model = Unmix(
-        jagged_slicq_cnorm,
-        realtime=results["args"]["realtime"],
-    )
+    if runtime_backend == "torch":
+        xumx_model = Unmix(
+            jagged_slicq_cnorm,
+            realtime=results["args"]["realtime"],
+        )
 
-    xumx_model.load_state_dict(state, strict=False)
-    xumx_model.freeze()
-    xumx_model.to(device)
+        xumx_model.load_state_dict(state, strict=False)
+        xumx_model.freeze()
+        xumx_model.to(device)
+    elif runtime_backend == "onnxruntime":
+        assert onnxruntime_available
+        xumx_model = onnx.load(onnx_model_path)
+        onnx.checker.check_model(xumx_model)
+        ort_session = onnxruntime.InferenceSession(str(onnx_model_path), providers=['CPUExecutionProvider'])
+        xumx_model = ort_session
+    else:
+        raise ValueError(f"unsupported runtime backend: {runtime_backend}")
 
     return xumx_model, encoder, sample_rate

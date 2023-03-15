@@ -1,6 +1,7 @@
 <!--
 # META:TODO
 
+1. onnxruntime with torch 1.11?
 1. git tag with "v1.0.0a" when pretrained models are ready
 1. pip wheel is fine w/ download fn, need public repo for that
     make public before pip wheel
@@ -23,7 +24,7 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
-**The realtime model scores 4.07 dB and takes an average of 2 seconds to demix a song with a GPU and 11 seconds with the CPU.<sup>†</sup>**
+**The realtime model scores 4.07 dB and is light and fast!** It takes an average of 2 seconds to demix a song with a GPU, 11 seconds with a CPU, and 7 seconds with a CPU and the provided ONNX model.<sup>†</sup>
 
 Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
 
@@ -109,6 +110,7 @@ $ pip install 'xumx_slicq_v2[devel] @ git+ssh://git@github.com/sevagh/xumx-sliCQ
 | xumx_slicq_v2.optuna | Optuna hyperparam tuning | CUDA GPU |
 | xumx_slicq_v2.slicqfinder | Random sliCQT param search | CPU **or** CUDA GPU |
 | xumx_slicq_v2.visualization | Generate spectrograms | CPU |
+| xumx_slicq_v2.export_onnx | Generate ONNX model for optimized CPU inference | CPU |
 
 If you installed the package with pip, run them like `python -m xumx_slicq_v2.$script_name`.
 
@@ -131,12 +133,13 @@ $ docker run --rm -it \
 #python -m xumx_slicq_v2.inference --cuda
 ```
 
-Inference time for the realtime variant is **5x faster than the offline model with the CPU**, measuring the average time taken to demix the 50 MUSDB18-HQ test tracks:
+Inference time for the realtime variant is **2x faster** than the offline model, and **3x faster with ONNX**, measuring the average time taken to demix the 50 MUSDB18-HQ test tracks:
 | Model | Device | Inference time (s, avg per track) |
 |:-|:-|:-|
-| Offline | CPU | 23.17 |
-| Realtime | CPU | 11.35 |
 | Realtime | GPU | 2.08 |
+| Realtime (ONNXRuntime) | CPU | 6.9 |
+| Realtime | CPU | 11.35 |
+| Offline | CPU | 23.17 |
 
 The offline model has to trade off speed and memory usage from the embedded Wiener-EM step, so I only use it for offline CPU inference.
 
