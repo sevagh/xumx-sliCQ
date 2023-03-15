@@ -323,15 +323,6 @@ def training_main():
     # pack the 3 pieces of the encoder/decoder
     encoder = (nsgt, insgt, cnorm)
 
-    separator_conf = {
-        "sample_rate": train_dataset.sample_rate,
-        "nb_channels": 2,
-        "seq_dur": args.seq_dur,  # have to do inference in chunks of seq_dur in CNN architecture
-    }
-
-    with open(Path(target_path, "separator.json"), "w") as outfile:
-        outfile.write(json.dumps(separator_conf, indent=4, sort_keys=True))
-
     jagged_slicq, sample_waveform = nsgt_base.predict_input_size(args.batch_size, 2, args.seq_dur)
 
     jagged_slicq_cnorm = cnorm(jagged_slicq)
@@ -493,6 +484,9 @@ def training_main():
             "valid_loss_history": valid_losses,
             "train_time_history": train_times,
             "num_bad_epochs": es.num_bad_epochs,
+            "sample_rate": train_dataset.sample_rate,
+            "nb_channels": 2,
+            "seq_dur": args.seq_dur,  # have to do inference in chunks of seq_dur in CNN architecture
         }
 
         with open(Path(target_path, "xumx_slicq_v2.json"), "w") as outfile:

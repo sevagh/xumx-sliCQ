@@ -12,11 +12,13 @@
         "lr": 0.001,
         "lr_decay_gamma": 0.3,
         "lr_decay_patience": 80,
+        "nb_channels": 2,
         "nb_workers": 8,
         "patience": 1000,
         "quiet": false,
         "realtime": false,
         "samples_per_track": 64,
+        "sample_rate": 44100.0,
         "seed": 42,
         "seq_dur": 2.0,
         "weight_decay": 1e-05

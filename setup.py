@@ -21,6 +21,7 @@ setup(
         "torchaudio>=0.13.1",
         "numpy",
         "tqdm",
+        "requests",
         "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
     ],
     extras_require={

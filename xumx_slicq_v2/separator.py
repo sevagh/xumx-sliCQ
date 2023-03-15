@@ -2,6 +2,7 @@ from typing import Optional, Union, Tuple
 import sys
 from tqdm import trange
 from pathlib import Path
+import requests
 import torch
 import json
 from torch import Tensor
@@ -23,30 +24,16 @@ class Separator(nn.Module):
         realtime: bool = False,
         device: Union[str, torch.device] = "cpu",
     ):
-        # load the pretrained model unless a different one is specified
-        if model_path is None:
-            if not realtime:
-                model_path = "/xumx-sliCQ-V2/pretrained_model"
-            else:
-                model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"
-        model_path = Path(model_path)
-
-        # when path exists, we assume its a custom model saved locally
-        assert model_path.exists()
-
-        with open(Path(model_path, "separator.json"), "r") as stream:
-            enc_conf = json.load(stream)
-
-        xumx_model, encoder = load_target_models(
+        xumx_model, encoder, sample_rate = load_target_models(
             model_path,
-            sample_rate=enc_conf["sample_rate"],
+            realtime=realtime,
             device=device,
         )
 
         separator = Separator(
             xumx_model=xumx_model,
             encoder=encoder,
-            sample_rate=enc_conf["sample_rate"],
+            sample_rate=sample_rate,
             chunk_size=chunk_size,
         ).to(device)
 
@@ -154,14 +141,42 @@ class Separator(nn.Module):
 
 
 def load_target_models(
-        model_path: str, device="cpu", sample_rate=44100,
+        model_path: str, realtime: bool = False, device="cpu"
 ):
-    model_name = "xumx_slicq_v2"
-    model_path = Path(model_path).expanduser()
+    if model_path is not None:
+        # manual model_path is specified, ensure it exists
+        model_path = Path(model_path).expanduser()
+        assert model_path.exists()
+    else:
+        # load the pretrained model if it's in the expected docker path
+        # otherwise, download it
+        if not realtime:
+            model_path = "/xumx-sliCQ-V2/pretrained_model"
+        else:
+            model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"
+        model_path = Path(model_path).expanduser()
 
-    # load model from disk
-    with open(Path(model_path, f"{model_name}.json"), "r") as stream:
-        results = json.load(stream)
+        if model_path.exists():
+            # load model from disk
+            with open(Path(model_path, "xumx_slicq_v2.json"), "r") as stream:
+                results = json.load(stream)
+
+            target_model_path = Path(model_path, "xumx_slicq_v2.pth")
+            state = torch.load(target_model_path, map_location=device)
+        else:
+            # fetch config json and weights from github
+            # use xumx-slicq-v1 urls for now while testing the code
+            if not realtime:
+                json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.json"
+                pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth"
+            else:
+                json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.json"
+                pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
+
+            results = requests.get(json_url).json()
+            state = torch.hub.load_state_dict_from_url(pth_url, progress=True)
+
+    sample_rate = results["args"]["sample_rate"]
 
     # need to configure an NSGT object to peek at its params to set up the neural network
     # e.g. M depends on the sllen which depends on fscale+fmin+fmax
@@ -176,9 +191,6 @@ def load_target_models(
     nb_channels = 2
 
     seq_dur = results["args"]["seq_dur"]
-
-    target_model_path = Path(model_path, f"{model_name}.pth")
-    state = torch.load(target_model_path, map_location=device)
 
     jagged_slicq, _ = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
     cnorm = ComplexNorm().to(device)
@@ -202,4 +214,4 @@ def load_target_models(
     xumx_model.freeze()
     xumx_model.to(device)
 
-    return xumx_model, encoder
+    return xumx_model, encoder, sample_rate
