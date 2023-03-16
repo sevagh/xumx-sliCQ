@@ -23,7 +23,7 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
-**The realtime model scores 4.07 dB and is light and fast!** It takes an average of 2 seconds to demix a song with a GPU and 11 seconds with a CPU using PyTorch.<sup>†</sup> The provided ONNX model optimizes the performance further, taking 7 seconds on the CPU!
+**The realtime model scores 4.07 dB and is light and fast!** It takes an average of 2 seconds to demix a song with a GPU and 11 seconds with a CPU using PyTorch.<sup>†</sup> The provided ONNX model optimizes the performance further, taking 7 seconds on the CPU.
 
 Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
 
@@ -141,7 +141,7 @@ Inference time for the realtime variant is **2x faster** than the offline model,
 | Offline | CPU | 23.17 |
 
 <details>
-<summary>Optimizing inference notes</summary>
+<summary>Optimizing inference</summary>
 
 The offline model has to trade off speed and memory usage from the embedded Wiener-EM step, so I only use it for offline CPU inference. The embedded Wiener-EM filtering step from the Norbert library also introduces additional complexity (complex numbers, etc.) for ONNX exporting.
 

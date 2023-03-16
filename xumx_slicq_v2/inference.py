@@ -111,16 +111,14 @@ def inference_main():
         model_path=args.model_path,
     )
 
-    tot_time = 0.
+    tot_time = 0.0
     n_files = 0
 
     # loop over the files
     for wav_file_num, wav_file in enumerate(tqdm(os.listdir(args.input_dir))):
         n_files += 1
         input_file = os.path.join(args.input_dir, wav_file)
-        audio, rate = data.load_audio(
-            input_file, start=args.start, dur=args.duration
-        )
+        audio, rate = data.load_audio(input_file, start=args.start, dur=args.duration)
         estimates, time_taken = separate(
             audio=audio,
             rate=rate,
@@ -140,15 +138,17 @@ def inference_main():
             torchaudio.save(
                 target_path,
                 torch.squeeze(estimate).detach().cpu(),
-                encoding="PCM_F", # pcm float for dtype=float32 wav
+                encoding="PCM_F",  # pcm float for dtype=float32 wav
                 sample_rate=separator.sample_rate,
             )
 
     if n_files > 0:
-        avg_time = tot_time/float(n_files)
+        avg_time = tot_time / float(n_files)
         print(f"Inference time in s (averaged across tracks): {avg_time:2f}")
     else:
-        print(f"No songs were demixed, are you sure {args.input_dir} contains .wav files?")
+        print(
+            f"No songs were demixed, are you sure {args.input_dir} contains .wav files?"
+        )
 
 
 if __name__ == "__main__":

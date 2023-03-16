@@ -43,7 +43,9 @@ def nsgfwin(
     fbas = f
     lbas = len(fbas)
 
-    frqs = torch.zeros((fbas.shape[0]+2,), dtype=fbas.dtype, device=fbas.device, requires_grad=False)
+    frqs = torch.zeros(
+        (fbas.shape[0] + 2,), dtype=fbas.dtype, device=fbas.device, requires_grad=False
+    )
     frqs[0] = 0.0
     frqs[1:-1] = fbas
     frqs[-1] = nf
@@ -53,18 +55,25 @@ def nsgfwin(
     fbas *= float(Ls) / sr
 
     if sliced:
-        M = torch.zeros(fbas.shape, dtype=torch.float32, device=torch.device(device), requires_grad=False)
+        M = torch.zeros(
+            fbas.shape,
+            dtype=torch.float32,
+            device=torch.device(device),
+            requires_grad=False,
+        )
         M[0] = 2 * fbas[1]
         M[1] = fbas[1] / q[0]
         for k in chain(range(2, lbas), (lbas + 1,)):
             M[k] = fbas[k + 1] - fbas[k - 1]
         M[lbas] = fbas[lbas] / q[lbas - 1]
-        M[lbas + 2 : 2 * (lbas + 1)] = torch.flip(M[1:lbas+1], (0,))
+        M[lbas + 2 : 2 * (lbas + 1)] = torch.flip(M[1 : lbas + 1], (0,))
         M *= Qvar / 4.0
         M = torch.round(M).int()
         M *= 4
     else:
-        M = torch.zeros(fbas.shape, dtype=int, device=torch.device(device), requires_grad=False)
+        M = torch.zeros(
+            fbas.shape, dtype=int, device=torch.device(device), requires_grad=False
+        )
         M[0] = torch.round(2 * fbas[1])
         for k in range(1, 2 * lbas + 1):
             M[k] = torch.round(fbas[k + 1] - fbas[k - 1])
@@ -84,12 +93,13 @@ def nsgfwin(
                 Mkk = int(M[kk].item())
 
                 g[kk - 1] = torch.ones(
-                    (Mkk_minus1,), dtype=g[kk - 1].dtype, device=torch.device(device), requires_grad=False
+                    (Mkk_minus1,),
+                    dtype=g[kk - 1].dtype,
+                    device=torch.device(device),
+                    requires_grad=False,
                 )
                 g[kk - 1][
-                    Mkk_minus1 // 2
-                    - Mkk // 2 : Mkk_minus1 // 2
-                    + int(ceil(Mkk / 2.0))
+                    Mkk_minus1 // 2 - Mkk // 2 : Mkk_minus1 // 2 + int(ceil(Mkk / 2.0))
                 ] = hannwin(Mkk, device=device)
 
         rfbas = torch.round(fbas / 2.0).int() * 2

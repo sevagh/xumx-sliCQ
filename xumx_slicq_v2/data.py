@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Optional, Union, Tuple, Any, Callable
+from typing import Optional, Union, Tuple, Callable
 
 import torch
 import torch.utils.data
@@ -14,14 +14,23 @@ def custom_collate(batch):
     # sort to group similar-size tracks together for better padding behavior
     batch.sort(key=lambda x: x.shape[-1], reverse=True)
     batch_max_samples = batch[-1].shape[-1]
-    batch_len = len(batch)
 
-    ret = torch.cat([
-        torch.unsqueeze(
-            # zero-pad each track to the maximum length
-            pad(batch_item, (0, batch_max_samples-batch_item.shape[-1]), mode='constant', value=0.),
-            dim=0) for batch_item in batch
-    ], dim=0)
+    ret = torch.cat(
+        [
+            torch.unsqueeze(
+                # zero-pad each track to the maximum length
+                pad(
+                    batch_item,
+                    (0, batch_max_samples - batch_item.shape[-1]),
+                    mode="constant",
+                    value=0.0,
+                ),
+                dim=0,
+            )
+            for batch_item in batch
+        ],
+        dim=0,
+    )
 
     return ret
 
@@ -148,7 +157,9 @@ def preprocess_audio(
 
 def aug_from_str(list_of_function_names: list):
     if list_of_function_names:
-        return _Compose([globals()["_augment_" + aug] for aug in list_of_function_names])
+        return _Compose(
+            [globals()["_augment_" + aug] for aug in list_of_function_names]
+        )
     else:
         return lambda audio: audio
 
@@ -197,9 +208,8 @@ def _augment_force_stereo(audio: torch.Tensor) -> torch.Tensor:
 
 
 class MUSDBDataset(torch.utils.data.Dataset):
-    @classmethod
+    @staticmethod
     def load_datasets(
-        cls,
         seed: int,
         train_seq_dur: float,
         samples_per_track: int = 64,
@@ -231,6 +241,7 @@ class MUSDBDataset(torch.utils.data.Dataset):
         )
 
         return train_dataset, valid_dataset
+
     def __init__(
         self,
         root: str = None,
@@ -389,4 +400,3 @@ class MUSDBDataset(torch.utils.data.Dataset):
 
     def extra_repr(self) -> str:
         return ""
-

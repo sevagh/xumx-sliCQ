@@ -23,9 +23,17 @@ class Scale:
         )
 
     def __call__(self):
-        f = torch.as_tensor([self.F(b) for b in range(self.bnds)], dtype=torch.float32, device=self.device)
+        f = torch.as_tensor(
+            [self.F(b) for b in range(self.bnds)],
+            dtype=torch.float32,
+            device=self.device,
+        )
         f.requires_grad = False
-        q = torch.as_tensor([self.Q(b) for b in range(self.bnds)], dtype=torch.float32, device=self.device)
+        q = torch.as_tensor(
+            [self.Q(b) for b in range(self.bnds)],
+            dtype=torch.float32,
+            device=self.device,
+        )
         q.requires_grad = False
         return f, q
 
@@ -43,6 +51,7 @@ class Scale:
         trlen = trlen + -trlen % 2  # make trlen divisible by 2
 
         return sllen, trlen
+
 
 class BarkScale(Scale):
     @staticmethod
@@ -81,31 +90,40 @@ class BarkScale(Scale):
 
 
 class LogScale(Scale):
-    def __init__(self, fmin, fmax, bnds, beyond=0, gamma=0., device="cpu"):
+    def __init__(self, fmin, fmax, bnds, beyond=0, gamma=0.0, device="cpu"):
         """
         @param fmin: minimum frequency (Hz)
         @param fmax: maximum frequency (Hz)
         @param bnds: number of frequency bands (int)
         @param beyond: number of frequency bands below fmin and above fmax (int)
         """
-        Scale.__init__(self, bnds+beyond*2)
+        Scale.__init__(self, bnds + beyond * 2)
         lfmin = math.log2(fmin)
         lfmax = math.log2(fmax)
-        odiv = (lfmax-lfmin)/(bnds-1)
-        lfmin_ = lfmin-odiv*beyond
-        lfmax_ = lfmax+odiv*beyond
+        odiv = (lfmax - lfmin) / (bnds - 1)
+        lfmin_ = lfmin - odiv * beyond
+        lfmax_ = lfmax + odiv * beyond
         self.fmin = 2**lfmin_
         self.fmax = 2**lfmax_
         self.pow2n = 2**odiv
-        self.q = math.sqrt(self.pow2n)/(self.pow2n-1.)/2.
+        self.q = math.sqrt(self.pow2n) / (self.pow2n - 1.0) / 2.0
 
         # set gamma for the variable-q scale, widening lower bands
         self.gamma = gamma
         self.device = torch.device(device)
-        
+
     def F(self, bnd=None):
-        return self.fmin*self.pow2n**(bnd if bnd is not None else torch.arange(self.bnds, device=self.device, requires_grad=False)) + self.gamma
-    
+        return (
+            self.fmin
+            * self.pow2n
+            ** (
+                bnd
+                if bnd is not None
+                else torch.arange(self.bnds, device=self.device, requires_grad=False)
+            )
+            + self.gamma
+        )
+
     def Q(self, bnd=None):
         return self.q
 
@@ -114,12 +132,12 @@ class MelScale(Scale):
     @staticmethod
     def hz2mel(f):
         "\cite{shannon:2003}"
-        return math.log10(f/700.+1.)*2595.
+        return math.log10(f / 700.0 + 1.0) * 2595.0
 
     @staticmethod
     def mel2hz(m):
         "\cite{shannon:2003}"
-        return (math.pow(10.,m/2595.)-1.)*700.
+        return (math.pow(10.0, m / 2595.0) - 1.0) * 700.0
 
     def __init__(self, fmin, fmax, bnds, beyond=0, device="cpu"):
         """
@@ -130,23 +148,23 @@ class MelScale(Scale):
         """
         mmin = self.hz2mel(fmin)
         mmax = self.hz2mel(fmax)
-        Scale.__init__(self, bnds+beyond*2)
+        Scale.__init__(self, bnds + beyond * 2)
         self.fmin = float(fmin)
         self.fmax = float(fmax)
-        self.mbnd = (mmax-mmin)/(bnds-1)  # mels per band
-        self.mmin = mmin-self.mbnd*beyond
-        self.mmax = mmax+self.mbnd*beyond
+        self.mbnd = (mmax - mmin) / (bnds - 1)  # mels per band
+        self.mmin = mmin - self.mbnd * beyond
+        self.mmax = mmax + self.mbnd * beyond
         self.device = torch.device(device)
-        
+
     def F(self, bnd=None):
         if bnd is None:
             bnd = torch.arange(self.bnds, device=self.device, requires_grad=False)
-        return self.mel2hz(bnd*self.mbnd+self.mmin)
+        return self.mel2hz(bnd * self.mbnd + self.mmin)
 
-    def Q1(self, bnd=None): # obviously not exact
+    def Q1(self, bnd=None):  # obviously not exact
         if bnd is None:
             bnd = torch.arange(self.bnds, device=self.device, requires_grad=False)
-        mel = bnd*self.mbnd+self.mmin
-        odivs = (torch.exp(mel/-1127.)-1.)*(-781.177/self.mbnd)
-        pow2n = torch.pow(2, 1./odivs)
-        return torch.sqrt(pow2n)/(pow2n-1.)/2.
+        mel = bnd * self.mbnd + self.mmin
+        odivs = (torch.exp(mel / -1127.0) - 1.0) * (-781.177 / self.mbnd)
+        pow2n = torch.pow(2, 1.0 / odivs)
+        return torch.sqrt(pow2n) / (pow2n - 1.0) / 2.0

@@ -80,16 +80,16 @@ def loop(
                     Ycomplex_targets,
                 )
 
-                mask_mse_loss = 0.
+                mask_mse_loss = 0.0
 
-                ideal_sum_of_masks = [None]*len(Ymasks)
+                ideal_sum_of_masks = [None] * len(Ymasks)
 
                 # sum of all 4 target masks should be exactly 1.0
                 for i, Ymask in enumerate(Ymasks):
                     Ymask_sum = torch.sum(Ymask, dim=0, keepdims=False)
                     ideal_mask = torch.ones_like(Ymask_sum)
 
-                    mask_mse_loss += torch.mean((Ymask_sum-ideal_mask)**2)
+                    mask_mse_loss += torch.mean((Ymask_sum - ideal_mask) ** 2)
 
                 mask_mse_loss /= len(Ymasks)
 
@@ -226,7 +226,7 @@ def training_main():
     parser.add_argument(
         "--fgamma",
         type=float,
-        default=15.,
+        default=15.0,
         help="gamma for variable-Q offset",
     )
     parser.add_argument(
@@ -323,7 +323,9 @@ def training_main():
     # pack the 3 pieces of the encoder/decoder
     encoder = (nsgt, insgt, cnorm)
 
-    jagged_slicq, sample_waveform = nsgt_base.predict_input_size(args.batch_size, 2, args.seq_dur)
+    jagged_slicq, sample_waveform = nsgt_base.predict_input_size(
+        args.batch_size, 2, args.seq_dur
+    )
 
     jagged_slicq_cnorm = cnorm(jagged_slicq)
     n_blocks = len(jagged_slicq)
@@ -517,6 +519,7 @@ def _save_checkpoint(state: dict, is_best: bool, path: str):
 
 class _AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -535,6 +538,7 @@ class _AverageMeter(object):
 
 class _EarlyStopping(object):
     """Early Stopping Monitor"""
+
     def __init__(self, mode="min", min_delta=0, patience=10):
         self.mode = mode
         self.min_delta = min_delta
@@ -584,9 +588,11 @@ class _ComplexMSELossCriterion:
         pred_complex,
         target_complex,
     ):
-        loss = 0.
-        for i, (pred_block, target_block) in enumerate(zip(pred_complex, target_complex)):
-            mse_loss = 0.
+        loss = 0.0
+        for i, (pred_block, target_block) in enumerate(
+            zip(pred_complex, target_complex)
+        ):
+            mse_loss = 0.0
 
             # 4C1 Combination Losses
             for j in [0, 1, 2, 3]:
@@ -606,7 +612,7 @@ class _ComplexMSELossCriterion:
                     target_block[j] + target_block[k] + target_block[l],
                 )
 
-            loss += mse_loss/14.0
+            loss += mse_loss / 14.0
         return loss / len(pred_complex)
 
     @staticmethod

@@ -48,8 +48,6 @@ class Unmix(nn.Module):
             input_mean = input_means[i] if input_means else None
             input_scale = input_scales[i] if input_scales else None
 
-            freq_start = freq_idx
-
             self.sliced_umx.append(
                 _SlicedUnmix(
                     C_block,
@@ -79,8 +77,8 @@ class Unmix(nn.Module):
         self.eval()
 
     def forward(self, Xcomplex, return_masks=False) -> Tensor:
-        Ycomplex = [None]*len(Xcomplex)
-        Ymasks = [None]*len(Xcomplex)
+        Ycomplex = [None] * len(Xcomplex)
+        Ymasks = [None] * len(Xcomplex)
 
         for i, Xblock in enumerate(Xcomplex):
             Ycomplex_block, Ymask_block = self.sliced_umx[i](
@@ -139,50 +137,58 @@ class _SlicedUnmix(nn.Module):
         else:
             first_conv_module = Conv2d
 
-        encoder.extend([
-            first_conv_module(
-                nb_channels,
-                hidden_size_1,
-                (freq_filter, window),
-                stride=(1, hop),
-                bias=False,
-            ),
-            BatchNorm2d(hidden_size_1),
-            ReLU(),
-        ])
+        encoder.extend(
+            [
+                first_conv_module(
+                    nb_channels,
+                    hidden_size_1,
+                    (freq_filter, window),
+                    stride=(1, hop),
+                    bias=False,
+                ),
+                BatchNorm2d(hidden_size_1),
+                ReLU(),
+            ]
+        )
 
-        encoder.extend([
-            Conv2d(
-                hidden_size_1,
-                hidden_size_2,
-                (freq_filter, time_filter_2),
-                bias=False,
-            ),
-            BatchNorm2d(hidden_size_2),
-            ReLU(),
-        ])
+        encoder.extend(
+            [
+                Conv2d(
+                    hidden_size_1,
+                    hidden_size_2,
+                    (freq_filter, time_filter_2),
+                    bias=False,
+                ),
+                BatchNorm2d(hidden_size_2),
+                ReLU(),
+            ]
+        )
 
-        decoder.extend([
-            ConvTranspose2d(
-                hidden_size_2,
-                hidden_size_1,
-                (freq_filter, time_filter_2),
-                bias=False,
-            ),
-            BatchNorm2d(hidden_size_1),
-            ReLU(),
-        ])
+        decoder.extend(
+            [
+                ConvTranspose2d(
+                    hidden_size_2,
+                    hidden_size_1,
+                    (freq_filter, time_filter_2),
+                    bias=False,
+                ),
+                BatchNorm2d(hidden_size_1),
+                ReLU(),
+            ]
+        )
 
-        decoder.extend([
-            ConvTranspose2d(
-                hidden_size_1,
-                nb_channels,
-                (freq_filter, window),
-                stride=(1, hop),
-                bias=True,
-            ),
-            Sigmoid(),
-        ])
+        decoder.extend(
+            [
+                ConvTranspose2d(
+                    hidden_size_1,
+                    nb_channels,
+                    (freq_filter, window),
+                    stride=(1, hop),
+                    bias=True,
+                ),
+                Sigmoid(),
+            ]
+        )
 
         cdae_1 = Sequential(*encoder, *decoder)
         cdae_2 = copy.deepcopy(cdae_1)
@@ -220,8 +226,22 @@ class _SlicedUnmix(nn.Module):
         x_shape = x.shape
         nb_samples, nb_channels, nb_f_bins, nb_slices, nb_t_bins = x_shape
 
-        ret = torch.zeros((4, *x_shape,), device=x.device, dtype=x.dtype)
-        ret_masks = torch.zeros((4, *x_shape,), device=x.device, dtype=x.dtype)
+        ret = torch.zeros(
+            (
+                4,
+                *x_shape,
+            ),
+            device=x.device,
+            dtype=x.dtype,
+        )
+        ret_masks = torch.zeros(
+            (
+                4,
+                *x_shape,
+            ),
+            device=x.device,
+            dtype=x.dtype,
+        )
 
         x = torch.flatten(x, start_dim=-2, end_dim=-1)
 
@@ -234,11 +254,11 @@ class _SlicedUnmix(nn.Module):
         for i, cdae in enumerate(self.cdaes):
             x_tmp = x.clone()
             for j, layer in enumerate(cdae):
-                #print(f"{x_tmp.shape=}")
+                # print(f"{x_tmp.shape=}")
                 x_tmp = layer(x_tmp)
 
             # crop if necessary
-            x_tmp = x_tmp[..., : nb_f_bins, : nb_slices*nb_t_bins]
+            x_tmp = x_tmp[..., :nb_f_bins, : nb_slices * nb_t_bins]
             x_tmp = x_tmp.reshape(x_shape)
 
             # store the sigmoid/soft mask before multiplying with mix
@@ -262,12 +282,7 @@ class _SlicedUnmix(nn.Module):
 
 
 class _CausalConv2d(torch.nn.Conv2d):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 kernel_size,
-                 stride=1,
-                 bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=True):
         self.__padding = kernel_size[1] - 1
 
         super(_CausalConv2d, self).__init__(
@@ -276,7 +291,8 @@ class _CausalConv2d(torch.nn.Conv2d):
             kernel_size=kernel_size,
             stride=stride,
             padding=0,
-            bias=bias)
+            bias=bias,
+        )
 
     def forward(self, x):
         x = F.pad(x, (self.__padding, 0))

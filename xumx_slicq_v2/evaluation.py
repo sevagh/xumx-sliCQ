@@ -1,5 +1,4 @@
 import argparse
-import functools
 import json
 import gc
 from typing import Optional, Union
@@ -51,7 +50,10 @@ if __name__ == "__main__":
         "--track", type=str, default=None, help="evaluate only this track name"
     )
     parser.add_argument(
-        "--realtime", action="store_true", default=False, help="use realtime pretrained model"
+        "--realtime",
+        action="store_true",
+        default=False,
+        help="use realtime pretrained model",
     )
     parser.add_argument(
         "--model-path", type=str, default=None, help="custom model path"
@@ -96,8 +98,6 @@ if __name__ == "__main__":
 
     if len(tracks) == 0:
         raise ValueError("dataset is empty")
-
-    total_scores = []
 
     results = museval.EvalStore()
 

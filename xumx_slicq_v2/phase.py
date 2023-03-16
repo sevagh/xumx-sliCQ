@@ -18,7 +18,11 @@ def blockwise_wiener(mix_slicqt, slicqtgrams, wiener_win_len_param: int = 5000):
 
     nb_frames = slicqtgrams.shape[1]
     targets_slicqt = torch.zeros(
-        *mix_slicqt.shape[:-1] + (4,2,),
+        *mix_slicqt.shape[:-1]
+        + (
+            4,
+            2,
+        ),
         dtype=mix_slicqt.dtype,
         device=mix_slicqt.device,
     )
@@ -32,16 +36,23 @@ def blockwise_wiener(mix_slicqt, slicqtgrams, wiener_win_len_param: int = 5000):
         cur_frame = torch.arange(pos, min(nb_frames, pos + wiener_win_len))
         pos = int(cur_frame[-1]) + 1
 
-        targets_slicqt[:, cur_frame, ...] = torch.view_as_real(norbert.wiener(
-            slicqtgrams[:, cur_frame, ...],
-            torch.view_as_complex(mix_slicqt[:, cur_frame, ...]),
-            1,
-            False,
-        ))
+        targets_slicqt[:, cur_frame, ...] = torch.view_as_real(
+            norbert.wiener(
+                slicqtgrams[:, cur_frame, ...],
+                torch.view_as_complex(mix_slicqt[:, cur_frame, ...]),
+                1,
+                False,
+            )
+        )
 
     # getting to (nb_samples, nb_targets, channel, fft_size, n_frames)
     targets_slicqt = targets_slicqt.permute(4, 0, 3, 2, 1, 5).contiguous()
-    targets_slicqt = targets_slicqt.reshape((*orig_shape, 2,))
+    targets_slicqt = targets_slicqt.reshape(
+        (
+            *orig_shape,
+            2,
+        )
+    )
     return targets_slicqt
 
 
@@ -75,7 +86,14 @@ def phasemix_sep(X, Ymag):
         Xphase_block = _atan2(X_block[..., 1], X_block[..., 0])
 
         # phasemix-sep all targets at once
-        Ycomplex_block = torch.empty((4, *X_block.shape,), dtype=X_block.dtype, device=X_block.device)
+        Ycomplex_block = torch.empty(
+            (
+                4,
+                *X_block.shape,
+            ),
+            dtype=X_block.dtype,
+            device=X_block.device,
+        )
 
         Ycomplex_block[:, ..., 0] = Ymag_block[:, ...] * torch.cos(Xphase_block)
         Ycomplex_block[:, ..., 1] = Ymag_block[:, ...] * torch.sin(Xphase_block)
@@ -99,11 +117,11 @@ def blockwise_phasemix_sep(X_block, Ymag_block):
             torch.unsqueeze(Ycomplex_block_real, dim=-1),
             torch.unsqueeze(Ycomplex_block_imag, dim=-1),
         ],
-        dim=-1
+        dim=-1,
     )
     return Ycomplex
 
 
 def abs_of_real_complex(Xcomplex_real_view):
     # abs(complex) = sqrt(a^2 + b^2)
-    return torch.sqrt(Xcomplex_real_view[..., 0]**2 + Xcomplex_real_view[..., 1]**2)
+    return torch.sqrt(Xcomplex_real_view[..., 0] ** 2 + Xcomplex_real_view[..., 1] ** 2)

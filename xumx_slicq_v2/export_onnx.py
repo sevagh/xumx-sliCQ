@@ -15,7 +15,7 @@ from .transforms import (
 import argparse
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 Export to ONNXRuntime")
 
     parser.add_argument(
@@ -26,8 +26,8 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    sample_rate=44100
-    device=torch.device("cuda")
+    sample_rate = 44100
+    device = torch.device("cuda")
 
     if args.offline:
         model_path = "/xumx-sliCQ-V2/pretrained_model"
@@ -65,9 +65,7 @@ if __name__ == '__main__':
     jagged_slicq, _ = nsgt_base.predict_input_size(1, nb_channels, seq_dur)
     cnorm = ComplexNorm().to(device)
 
-    nsgt, insgt = make_filterbanks(
-        nsgt_base, sample_rate
-    )
+    nsgt, insgt = make_filterbanks(nsgt_base, sample_rate)
     encoder = (nsgt, insgt, cnorm)
 
     nsgt = nsgt.to(device)
@@ -84,16 +82,17 @@ if __name__ == '__main__':
     xumx_model.freeze()
     xumx_model.to(device)
 
-    dest_path = Path(model_path, f'{model_name}.onnx')
+    dest_path = Path(model_path, f"{model_name}.onnx")
 
-    torch.onnx.export(xumx_model,
+    torch.onnx.export(
+        xumx_model,
         (tuple([jagged_slicq_.to(device) for jagged_slicq_ in jagged_slicq]),),
         dest_path,
-        input_names=[f'xcomplex{i}' for i in range(len(jagged_slicq))],
-        output_names=[f'ycomplex{i}' for i in range(len(jagged_slicq))],
+        input_names=[f"xcomplex{i}" for i in range(len(jagged_slicq))],
+        output_names=[f"ycomplex{i}" for i in range(len(jagged_slicq))],
         dynamic_axes={
-            **{f"xcomplex{i}": {3: 'nb_slices'} for i in range(len(jagged_slicq))},
-            **{f"ycomplex{i}": {4: 'nb_slices'} for i in range(len(jagged_slicq))},
+            **{f"xcomplex{i}": {3: "nb_slices"} for i in range(len(jagged_slicq))},
+            **{f"ycomplex{i}": {4: "nb_slices"} for i in range(len(jagged_slicq))},
         },
-        opset_version=16
+        opset_version=16,
     )

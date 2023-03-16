@@ -30,7 +30,9 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, device="c
         loopparams.append(p)
 
     ragged_giis = [
-        torch.nn.functional.pad(torch.unsqueeze(gii, dim=0), (0, maxLg.int().item() - gii.shape[0]))
+        torch.nn.functional.pad(
+            torch.unsqueeze(gii, dim=0), (0, maxLg.int().item() - gii.shape[0])
+        )
         for gii in g[sl]
     ]
     giis = torch.conj(torch.cat(ragged_giis))
@@ -64,7 +66,9 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, device="c
         if block_ptr == -1 or bucketed_tensors[block_ptr][0].shape[-1] != Lg:
             if block_ptr != -1:
                 # run ifft on the completed previous block before moving onto a new one
-                bucketed_tensors[block_ptr] = torch.fft.ifft(bucketed_tensors[block_ptr])
+                bucketed_tensors[block_ptr] = torch.fft.ifft(
+                    bucketed_tensors[block_ptr]
+                )
             bucketed_tensors.append(c)
             block_ptr += 1
         else:

@@ -18,26 +18,32 @@ def make_filterbanks(nsgt_base, sample_rate=44100.0):
 
 
 class NSGTBase(nn.Module):
-    def __init__(self, scale, fbins, fmin, fmax=22050., fgamma=15., fs=44100., device="cuda"):
+    def __init__(
+        self, scale, fbins, fmin, fmax=22050.0, fgamma=15.0, fs=44100.0, device="cuda"
+    ):
         super(NSGTBase, self).__init__()
         self.fbins = fbins
         self.fmin = fmin
         self.fmax = fmax
 
-        if scale == 'bark':
+        if scale == "bark":
             self.scl = BarkScale(self.fmin, self.fmax, self.fbins, device=device)
-        elif scale == 'mel':
+        elif scale == "mel":
             self.scl = MelScale(self.fmin, self.fmax, self.fbins, device=device)
-        elif scale == 'cqlog':
+        elif scale == "cqlog":
             # constant-Q
             self.scl = LogScale(self.fmin, self.fmax, self.fbins, device=device)
-        elif scale == 'vqlog':
+        elif scale == "vqlog":
             # variable-Q with offset
-            self.scl = LogScale(self.fmin, self.fmax, self.fbins, gamma=fgamma, device=device)
+            self.scl = LogScale(
+                self.fmin, self.fmax, self.fbins, gamma=fgamma, device=device
+            )
 
         self.sllen, self.trlen = self.scl.suggested_sllen_trlen(fs)
-        scale_to_print = scale if scale != 'vqlog' else f"vqlog (gamma={fgamma})"
-        print(f"scale={scale_to_print}, fbins={fbins}, fmin={fmin:.2f}, fmax={fmax:.2f}, sllen={self.sllen}, trlen={self.trlen}")
+        scale_to_print = scale if scale != "vqlog" else f"vqlog (gamma={fgamma})"
+        print(
+            f"scale={scale_to_print}, fbins={fbins}, fmin={fmin:.2f}, fmax={fmax:.2f}, sllen={self.sllen}, trlen={self.trlen}"
+        )
 
         self.nsgt = NSGT_sliced(
             self.scl,
@@ -52,12 +58,12 @@ class NSGTBase(nn.Module):
         self.fs = fs
         self.fbins_actual = self.nsgt.fbins_actual
 
-    def max_bins(self, bandwidth): # convert hz bandwidth into bins
+    def max_bins(self, bandwidth):  # convert hz bandwidth into bins
         if bandwidth is None or bandwidth < 0:
             return None
         freqs, _ = self.scl()
         max_bin = min(torch.argwhere(freqs > bandwidth))[0]
-        return max_bin+1
+        return max_bin + 1
 
     def predict_input_size(self, batch_size, nb_channels, seq_dur_s):
         fwd = NSGT_SL(self)
@@ -96,7 +102,7 @@ class NSGT_SL(nn.Module):
                 last axis is stacked real and imaginary
         """
         shape = x.size()
-        #nb_samples, nb_channels, nb_timesteps = shape
+        # nb_samples, nb_channels, nb_timesteps = shape
 
         # pack batch
         x = x.contiguous().view(-1, shape[-1])
