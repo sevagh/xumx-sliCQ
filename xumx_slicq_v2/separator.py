@@ -4,6 +4,7 @@ from tqdm import trange
 from pathlib import Path
 import requests
 import torch
+import numpy as np
 import json
 from torch import Tensor
 import torch.nn as nn
@@ -21,6 +22,7 @@ try:
 except ModuleNotFoundError:
     pass
 
+_SUPPORTED_RUNTIMES = ["torch-cpu", "torch-cuda", "onnx-cpu", "onnx-cuda"]
 
 class Separator(nn.Module):
     @classmethod
@@ -29,9 +31,13 @@ class Separator(nn.Module):
         chunk_size: int = 2621440,
         model_path: Optional[str] = None,
         runtime_backend: Optional[str] = "torch",
+        warmup: int = 0,
         realtime: bool = False,
         device: Union[str, torch.device] = "cpu",
     ):
+        if runtime_backend not in _SUPPORTED_RUNTIMES:
+            raise ValueError(f"requested runtime backend {runtime_backend} not in {_SUPPORTED_RUNTIMES}")
+
         xumx_model, encoder, sample_rate = load_target_models(
             model_path,
             runtime_backend=runtime_backend,
@@ -49,6 +55,14 @@ class Separator(nn.Module):
 
         if runtime_backend == "torch":
             separator.freeze()
+
+        if warmup > 0:
+            print(f"Running {warmup} inference warmup reps")
+            for _ in trange(warmup):
+                # random 100-second waveform
+                waveform = torch.rand((1, 2, int(100*sample_rate)), dtype=torch.float32, device=device)
+                separator.forward(waveform)
+
         return separator
 
     def __init__(
@@ -71,7 +85,7 @@ class Separator(nn.Module):
         self.xumx_model = xumx_model
         self.runtime_backend = runtime_backend
 
-        if self.runtime_backend == "onnxruntime":
+        if self.runtime_backend == "onnx":
             assert onnxruntime_available
 
         self.nsgt, self.insgt, self.cnorm = encoder
@@ -117,17 +131,47 @@ class Separator(nn.Module):
             n_samples = audio.shape[-1]
 
             X = self.nsgt(audio)
-            Xmag = self.cnorm(X)
 
-            if self.runtime_backend == "torch":
+            if self.runtime_backend.startswith("torch"):
                 Ycomplex_all = self.xumx_model(X)
                 estimates = self.insgt(Ycomplex_all, n_samples)
-            elif self.runtime_backend == "onnxruntime":
-                Ycomplex_all = self.xumx_model.run(
-                    [f"ycomplex{i}" for i in range(len(X))],
-                    {f"xcomplex{i}": X[i].detach().cpu().numpy() for i in range(len(X))}
-                )
-                estimates = self.insgt([torch.as_tensor(Ycomplex_all_) for Ycomplex_all_ in Ycomplex_all], n_samples)
+            elif self.runtime_backend.startswith("onnx"):
+                if self.runtime_backend.endswith("cuda"):
+                    # set up IOBinding for GPU transfers
+                    io_binding = self.xumx_model.io_binding()
+
+                    # Ycomplex_all
+                    Ycomplex_all = [torch.empty((4, *X[i].shape,), device=X[i].device, dtype=X[i].dtype).contiguous() for i in range(len(X))]
+
+                    for i in range(len(X)):
+                        io_binding.bind_input(
+                            name=f"xcomplex{i}",
+                            device_type='cuda',
+                            device_id=0,
+                            element_type=np.float32,
+                            shape=tuple(X[i].shape),
+                            buffer_ptr=X[i].data_ptr(),
+                        )
+                        io_binding.bind_output(
+                            name=f"ycomplex{i}",
+                            device_type='cuda',
+                            device_id=0,
+                            element_type=np.float32,
+                            shape=tuple(Ycomplex_all[i].shape),
+                            buffer_ptr=Ycomplex_all[i].data_ptr()
+                        )
+
+                    self.xumx_model.run_with_iobinding(io_binding)
+                    print("onnx is fast, insgt is slow?")
+                    estimates = self.insgt(Ycomplex_all, n_samples)
+                    print("fugg")
+                else:
+                    Ycomplex_all = self.xumx_model.run(
+                        [f"ycomplex{i}" for i in range(len(X))],
+                        {f"xcomplex{i}": X[i].detach().cpu().numpy() for i in range(len(X))}
+                    )
+                    estimates = self.insgt([torch.as_tensor(Ycomplex_all_) for Ycomplex_all_ in Ycomplex_all], n_samples)
+
 
             final_estimates.append(estimates)
 
@@ -164,7 +208,10 @@ class Separator(nn.Module):
 
 
 def load_target_models(
-        model_path: str, runtime_backend: str = "torch", realtime: bool = False, device="cpu"
+        model_path: str,
+        runtime_backend: str = "torch",
+        realtime: bool = False,
+        device="cpu"
 ):
     # force realtime for onnx
     if runtime_backend != "torch":
@@ -245,7 +292,7 @@ def load_target_models(
 
     jagged_slicq_cnorm = cnorm(jagged_slicq)
 
-    if runtime_backend == "torch":
+    if runtime_backend.startswith("torch"):
         xumx_model = Unmix(
             jagged_slicq_cnorm,
             realtime=results["args"]["realtime"],
@@ -254,11 +301,30 @@ def load_target_models(
         xumx_model.load_state_dict(state, strict=False)
         xumx_model.freeze()
         xumx_model.to(device)
-    elif runtime_backend == "onnxruntime":
+    elif runtime_backend.startswith("onnx"):
         assert onnxruntime_available
         xumx_model = onnx.load(onnx_model_path)
         onnx.checker.check_model(xumx_model)
-        ort_session = onnxruntime.InferenceSession(str(onnx_model_path), providers=['CPUExecutionProvider'])
+
+        available_providers = onnxruntime.get_available_providers()
+
+        provider = None
+        sess_options = onnxruntime.SessionOptions()
+
+        if runtime_backend.endswith("cpu"):
+            provider = ["CPUExecutionProvider"]
+
+            # cpu perf tuning: https://fs-eire.github.io/onnxruntime/docs/performance/tune-performance.html#default-cpu-execution-provider-mlas
+            # ORT_PARALLEL + num threads
+            #sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_PARALLEL
+            #sess_options.intra_op_num_threads = 8
+        elif runtime_backend.endswith("cuda"):
+            #provider = [("CUDAExecutionProvider", {"cudnn_conv_use_max_workspace": '1'}), "CPUExecutionProvider"]
+            provider = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+        print(f"ONNXRuntime chosen provider: {provider}")
+
+        ort_session = onnxruntime.InferenceSession(str(onnx_model_path), providers=provider, sess_options=sess_options)
         xumx_model = ort_session
     else:
         raise ValueError(f"unsupported runtime backend: {runtime_backend}")

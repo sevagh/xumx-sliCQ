@@ -7,7 +7,7 @@ with open("README.md", encoding="utf-8") as fh:
 
 setup(
     name="xumx_slicq_v2",
-    version=os.getenv("XUMX_SLICQ_V2_VERSION", "1.0.0"),
+    version="1.0.0",
     author="Sevag Hanssian",
     author_email="sevagh@pm.me",
     url="https://github.com/sevagh/xumx-sliCQ-V2",
@@ -25,11 +25,16 @@ setup(
         "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
     ],
     extras_require={
-        "onnxruntime": [
+        "onnxruntime-cuda": [
+            "onnx",
+            "onnxruntime-gpu",
+            "tensorrt",
+        ],
+        "onnxruntime-cpu": [
+            "onnx",
             "onnxruntime",
         ],
         "devel": [
-            "onnxruntime",
             "tensorboard",
             "torchinfo",
             "scikit-learn",

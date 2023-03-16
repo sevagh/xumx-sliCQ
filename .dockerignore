@@ -1,6 +1,5 @@
 *
 !xumx_slicq_v2
 !pretrained_model
-!onnxruntime-export-helpers/*
 !setup.py
 !README.md

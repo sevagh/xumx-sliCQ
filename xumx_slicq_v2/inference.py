@@ -1,6 +1,7 @@
 from pathlib import Path
 import torch
 import time
+from tqdm import trange
 import torchaudio
 import json
 import numpy as np
@@ -71,20 +72,20 @@ def inference_main():
     parser.add_argument(
         "--runtime-backend",
         type=str,
-        default="torch",
-        help="Set model backend (`torch` or `onnxruntime`), defaults to `torch`",
-    )
-    parser.add_argument(
-        "--cuda",
-        action="store_true",
-        default=False,
-        help="Use CUDA device for pytorch inference",
+        default="torch-cpu",
+        help="Set model backend (`torch-cpu`, `torch-cuda`, `onnx-cpu`, `onnx-cuda`), defaults to `torch-cpu`",
     )
     parser.add_argument(
         "--realtime",
         action="store_true",
         default=False,
         help="Use realtime pretrained model",
+    )
+    parser.add_argument(
+        "--warmup-iters",
+        type=int,
+        default=0,
+        help="Run some inference warmup iterations",
     )
     parser.add_argument(
         "--model-path",
@@ -97,8 +98,8 @@ def inference_main():
 
     torchaudio.set_audio_backend(args.audio_backend)
 
-    device = torch.device("cuda" if args.cuda else "cpu")
-    print("Using ", device)
+    device = torch.device("cuda" if args.runtime_backend.endswith("cuda") else "cpu")
+    print(f"Using torch device {device} for backend {args.runtime_backend}")
 
     # create separator only once to reduce model loading
     # when using multiple files
@@ -106,6 +107,7 @@ def inference_main():
         device=device,
         runtime_backend=args.runtime_backend,
         realtime=args.realtime,
+        warmup=args.warmup_iters,
         model_path=args.model_path,
     )
 
@@ -113,7 +115,7 @@ def inference_main():
     n_files = 0
 
     # loop over the files
-    for wav_file in os.listdir(args.input_dir):
+    for wav_file_num, wav_file in enumerate(tqdm(os.listdir(args.input_dir))):
         n_files += 1
         input_file = os.path.join(args.input_dir, wav_file)
         audio, rate = data.load_audio(
@@ -130,6 +132,7 @@ def inference_main():
         outdir.mkdir(exist_ok=True, parents=True)
 
         tot_time += time_taken
+        print(f"average so far: {tot_time/float(wav_file_num+1):.2f}s")
 
         # write out estimates
         for target, estimate in estimates.items():
