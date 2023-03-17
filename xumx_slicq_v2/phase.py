@@ -1,5 +1,5 @@
 import torch
-import norbert
+import xumx_slicq_v2.norbert as norbert
 
 
 def blockwise_wiener(mix_slicqt, slicqtgrams, wiener_win_len_param: int = 5000):

@@ -6,8 +6,8 @@ with open("README.md", encoding="utf-8") as fh:
 
 
 setup(
-    name="xumx_slicq_v2",
-    version="1.0.0",
+    name="xumx-slicq-v2",
+    version="1.0.0a0",
     author="Sevag Hanssian",
     author_email="sevagh@pm.me",
     url="https://github.com/sevagh/xumx-sliCQ-V2",
@@ -22,7 +22,7 @@ setup(
         "numpy",
         "tqdm",
         "requests",
-        "norbert @ git+https://github.com/yoyololicon/norbert#egg=norbert",
+        "scipy",
     ],
     extras_require={
         "onnxruntime-cuda": [
@@ -33,6 +33,10 @@ setup(
         "onnxruntime-cpu": [
             "onnx",
             "onnxruntime",
+        ],
+        "musdb": [
+            "musdb==0.3.1",
+            "museval==0.3.1",
         ],
         "devel": [
             "tensorboard",

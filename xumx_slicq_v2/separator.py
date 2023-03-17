@@ -73,7 +73,7 @@ class Separator(nn.Module):
             chunk_size=chunk_size,
         ).to(device)
 
-        if runtime_backend == "torch":
+        if runtime_backend.startswith("torch"):
             separator.freeze()
 
         if warmup > 0:
@@ -108,7 +108,7 @@ class Separator(nn.Module):
         self.xumx_model = xumx_model
         self.runtime_backend = runtime_backend
 
-        if self.runtime_backend == "onnx":
+        if self.runtime_backend.startswith("onnx"):
             assert onnxruntime_available
 
         self.nsgt, self.insgt, self.cnorm = encoder
@@ -271,7 +271,7 @@ def load_target_models(
             with open(Path(model_path, "xumx_slicq_v2.json"), "r") as stream:
                 results = json.load(stream)
 
-            if runtime_backend == "torch":
+            if runtime_backend.startswith("torch"):
                 target_model_path = Path(model_path, "xumx_slicq_v2.pth")
                 state = torch.load(target_model_path, map_location=device)
             else:

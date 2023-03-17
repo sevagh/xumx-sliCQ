@@ -2,7 +2,6 @@ from typing import Optional
 from tqdm import trange
 import torch
 import torch.nn as nn
-import norbert
 import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import (

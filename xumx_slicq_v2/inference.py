@@ -130,7 +130,6 @@ def inference_main():
         outdir.mkdir(exist_ok=True, parents=True)
 
         tot_time += time_taken
-        print(f"average so far: {tot_time/float(wav_file_num+1):.2f}s")
 
         # write out estimates
         for target, estimate in estimates.items():

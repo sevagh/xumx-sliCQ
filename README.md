@@ -1,18 +1,7 @@
-<!--
-# META:TODO
-
-1. pip wheel is fine w/ download fn, need public repo for that
-    make public before pip wheel
-1. git tag with "v1.0.0a" when pretrained models are ready
-1. arxiv paper
-1. cadenza challenge submission + cadenza flag for inference script + paper
-1. MILA tech talk 2
--->
-
 # xumx-sliCQ-V2
 
-<!--[![PyPI Wheel](https://img.shields.io/pypi/v/openunmix.svg)](https://pypi.python.org/pypi/openunmix)
-[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)-->
+[![PyPI Wheel](https://img.shields.io/pypi/v/xumx_slicq_v2.svg)](https://pypi.python.org/pypi/xumx_slicq_v2)
+<!--[![arXiv](https://img.shields.io/badge/arXiv-2112.05509-b31b1b.svg)](https://arxiv.org/abs/2112.05509)-->
 
 xumx-sliCQ-V2 is a PyTorch neural network for music demixing, trained only on [MUSDB18-HQ](https://zenodo.org/record/3338373).
 
@@ -20,6 +9,7 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 1. Spectral transform: sliced Constant-Q Transform (sliCQT) with the Bark scale vs. STFT
 1. Neural network architecture: convolutional denoising autoencoder (CDAE) vs. dense + Bi-LSTM
 1. All targets are trained together with combined loss functions like [CrossNet-Open-Unmix (X-UMX)](https://github.com/sony/ai-research-code/blob/master/x-umx/x-umx.md)
+1. Differentiable Wiener filtering is vendored under `xumx_slicq_v2.norbert` from [this PyTorch fork](https://github.com/yoyololicon/norbert) of the [sigsep/norbert library](https://github.com/sigsep/norbert)
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
@@ -54,7 +44,6 @@ write arxiv paper
 
 ### Roadmap
 
-* Publish xumx_slicq_v2 to pypi.org for easier installation
 * Submit paper to arXiv
 * Submission to [Cadenza Challenge](http://cadenzachallenge.org/)
 
@@ -87,14 +76,23 @@ The container is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc
 
 To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
 
-I only provide Docker instructions; pip instructions are coming soon!
-<!--```
-# basic inference
-$ pip install 'xumx_slicq_v2 @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
+If you want to use pip, the project is [available on PyPI.org](https://pypi.org/project/xumx-slicq-v2/):
+```
+# regular case
+$ pip install xumx-slicq-v2
 
-# training, tuning, development, etc.
-$ pip install 'xumx_slicq_v2[devel] @ git+ssh://git@github.com/sevagh/xumx-sliCQ-V2'
-```-->
+# for ONNX CPU inference
+$ pip install xumx-slicq-v2[onnxruntime-cpu]
+
+# for ONNX CUDA inference
+$ pip install xumx-slicq-v2[onnxruntime-cuda]
+
+# for musdb + museval
+$ pip install xumx-slicq-v2[musdb]
+
+# for all development/training dependencies (needs CUDA GPU)
+$ pip install xumx-slicq-v2[devel]
+```
 
 <details>
 <summary>List of all scripts</summary>
@@ -117,10 +115,29 @@ If you installed the package with pip, run them like `python -m xumx_slicq_v2.$s
 
 ### Run
 
-**Pip**: coming soon! I need to add code to download the pretrained weights from GitHub once I make the repo public
+**Pip**: run inference to generate outputs on a folder containing mixed song wav files:
+```
+$ python -m xumx_slicq_v2 --audio-backend="sox_io" --input-dir=./input/ --output-dir=./output/
+Using torch device cpu for backend torch-cpu
+Downloading: "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth" to /home/sevagh/.cache/torch/hub/checkpoints/xumx_slicq_v2_offline.pth
+100%|████████████████████████████████████████████████████████████████████████| 59.6M/59.6M [00:09<00:00, 6.25MB/s]
+scale=bark, fbins=262, fmin=32.90, fmax=22050.00, sllen=18060, trlen=4516
+song chunks: 100%|██████████████████████████████████████████████████████████████████| 1/1 [00:01<00:00,  1.28s/it]
+100%|███████████████████████████████████████████████████████████████████████████████| 1/1 [00:01<00:00,  1.30s/it]
+Inference time in s (averaged across tracks): 1.28
+```
+
+The appropriate weight files will be automatically downloaded. Runtime options are:
+| Arguments | Model | Inference lib | Device |
+|:-|:-|:-|:-|
+| --runtime-backend=torch-cpu | Offline | PyTorch | CPU |
+| --runtime-backend=torch-cuda | Offline | PyTorch | CUDA GPU |
+| --runtime-backend=torch-cpu --realtime | Realtime | PyTorch | CPU |
+| --runtime-backend=torch-cuda --realtime | Realtime | PyTorch | CUDA GPU |
+| --runtime-backend=onnx-cpu | Realtime | ONNXRuntime | CPU |
+| --runtime-backend=onnx-cuda | Realtime | ONNXRuntime | CUDA GPU |
 
 **Docker**: run inference to generate outputs on a folder containing mixed song wav files:
-
 ```
 $ docker run --rm -it \
     -v /path/to/input/songs/:/input \
