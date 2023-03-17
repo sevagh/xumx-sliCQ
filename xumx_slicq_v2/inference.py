@@ -1,7 +1,7 @@
 from pathlib import Path
 import torch
 import time
-from tqdm import trange
+from tqdm import trange, tqdm
 import torchaudio
 import json
 import numpy as np
@@ -144,7 +144,7 @@ def inference_main():
 
     if n_files > 0:
         avg_time = tot_time / float(n_files)
-        print(f"Inference time in s (averaged across tracks): {avg_time:2f}")
+        print(f"Inference time in s (averaged across tracks): {avg_time:.2f}")
     else:
         print(
             f"No songs were demixed, are you sure {args.input_dir} contains .wav files?"

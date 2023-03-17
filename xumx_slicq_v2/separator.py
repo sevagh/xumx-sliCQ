@@ -1,6 +1,6 @@
 from typing import Optional, Union, Tuple
 import sys
-from tqdm import trange
+from tqdm import trange, tqdm
 from pathlib import Path
 import requests
 import torch
@@ -14,6 +14,7 @@ from .transforms import (
     NSGTBase,
     make_filterbanks,
 )
+import urllib.request
 
 onnxruntime_available = False
 try:
@@ -25,6 +26,20 @@ except ModuleNotFoundError:
     pass
 
 _SUPPORTED_RUNTIMES = ["torch-cpu", "torch-cuda", "onnx-cpu", "onnx-cuda"]
+
+
+class DownloadProgressBar(tqdm):
+    def update_to(self, b=1, bsize=1, tsize=None):
+        if tsize is not None:
+            self.total = tsize
+        self.update(b * bsize - self.n)
+
+
+def download_url(url, output_path):
+    print(f"Downloading \"{url}\" to {output_path}")
+    with DownloadProgressBar(unit='B', unit_scale=True,
+                             miniters=1, desc=url.split('/')[-1]) as t:
+        urllib.request.urlretrieve(url, filename=output_path, reporthook=t.update_to)
 
 
 class Separator(nn.Module):
@@ -63,6 +78,7 @@ class Separator(nn.Module):
 
         if warmup > 0:
             print(f"Running {warmup} inference warmup reps")
+            t = trange(warmup, desc="warmup")
             for _ in trange(warmup):
                 # random 100-second waveform
                 waveform = torch.rand(
@@ -124,16 +140,14 @@ class Separator(nn.Module):
         if (N % self.chunk_size) != 0:
             nchunks += 1
 
-        print(f"n chunks: {nchunks}")
-
         final_estimates = []
 
-        for chunk_idx in trange(nchunks):
+        t = trange(nchunks, desc="song chunks")
+        for chunk_idx in t:
             audio = audio_big[
                 ...,
                 chunk_idx * self.chunk_size : min((chunk_idx + 1) * self.chunk_size, N),
             ]
-            print(f"audio.shape: {audio.shape}")
 
             n_samples = audio.shape[-1]
 
@@ -179,9 +193,7 @@ class Separator(nn.Module):
                         )
 
                     self.xumx_model.run_with_iobinding(io_binding)
-                    print("onnx is fast, insgt is slow?")
                     estimates = self.insgt(Ycomplex_all, n_samples)
-                    print("fugg")
                 else:
                     Ycomplex_all = self.xumx_model.run(
                         [f"ycomplex{i}" for i in range(len(X))],
@@ -201,7 +213,6 @@ class Separator(nn.Module):
             final_estimates.append(estimates)
 
         ests_concat = torch.cat(final_estimates, axis=-1)
-        print(f"ests concat: {ests_concat.shape}")
         return ests_concat
 
     @staticmethod
@@ -239,7 +250,7 @@ def load_target_models(
     device="cpu",
 ):
     # force realtime for onnx
-    if runtime_backend != "torch":
+    if "torch" not in runtime_backend:
         realtime = True
 
     if model_path is not None:
@@ -276,16 +287,18 @@ def load_target_models(
                 pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
                 onnx_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.onnx"
 
+            hub_dir = Path(torch.hub.get_dir())
+            hub_dir.mkdir(parents=True, exist_ok=True)
+
             results = requests.get(json_url).json()
-            if runtime_backend == "torch":
-                state = torch.hub.load_state_dict_from_url(pth_url, progress=True)
-            else:
+            if runtime_backend.startswith("torch"):
+                fname = "xumx_slicq_v2_realtime.pth" if realtime else "xumx_slicq_v2_offline.pth"
+                state = torch.hub.load_state_dict_from_url(pth_url, file_name=fname, progress=True)
+            elif runtime_backend.startswith("onnx"):
                 # let's use torch hub's dir to save onnx file
-                hub_dir = torch.hub.get_dir()
-                onnx_dest = Path(hub_dir, "xumx-slicq-v2/xumx_slicq_v2.onnx")
-                with open(onnx_dest, "wb") as onnx_dest_file:
-                    resp = requests.get(onnx_url)
-                    onnx_dest_file.write(resp.content)
+                onnx_dest = Path(hub_dir / "checkpoints/xumx_slicq_v2_realtime.onnx")
+                if not onnx_dest.exists():
+                    download_url(onnx_url, onnx_dest)
                 onnx_model_path = onnx_dest
 
     sample_rate = results["args"]["sample_rate"]
