@@ -256,7 +256,8 @@ def load_target_models(
     if model_path is not None:
         # manual model_path is specified, ensure it exists
         model_path = Path(model_path).expanduser()
-        assert model_path.exists()
+        json_path = Path(model_path / "xumx_slicq_v2.json")
+        assert model_path.exists() and json_path.exists()
     else:
         # load the pretrained model if it's in the expected docker path
         # otherwise, download it
@@ -266,40 +267,40 @@ def load_target_models(
             model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"
         model_path = Path(model_path).expanduser()
 
-        if model_path.exists():
-            # load model from disk
-            with open(Path(model_path, "xumx_slicq_v2.json"), "r") as stream:
-                results = json.load(stream)
+    if model_path.exists():
+        # load model from disk
+        with open(Path(model_path, "xumx_slicq_v2.json"), "r") as stream:
+            results = json.load(stream)
 
-            if runtime_backend.startswith("torch"):
-                target_model_path = Path(model_path, "xumx_slicq_v2.pth")
-                state = torch.load(target_model_path, map_location=device)
-            else:
-                onnx_model_path = Path(model_path, "xumx_slicq_v2.onnx")
+        if runtime_backend.startswith("torch"):
+            target_model_path = Path(model_path, "xumx_slicq_v2.pth")
+            state = torch.load(target_model_path, map_location=device)
         else:
-            # fetch config json and weights from github
-            # use xumx-slicq-v1 urls for now while testing the code
-            if not realtime:
-                json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.json"
-                pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth"
-            else:
-                json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.json"
-                pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
-                onnx_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.onnx"
+            onnx_model_path = Path(model_path, "xumx_slicq_v2.onnx")
+    else:
+        # fetch config json and weights from github
+        # use xumx-slicq-v1 urls for now while testing the code
+        if not realtime:
+            json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.json"
+            pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth"
+        else:
+            json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.json"
+            pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
+            onnx_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.onnx"
 
-            hub_dir = Path(torch.hub.get_dir())
-            hub_dir.mkdir(parents=True, exist_ok=True)
+        hub_dir = Path(torch.hub.get_dir())
+        hub_dir.mkdir(parents=True, exist_ok=True)
 
-            results = requests.get(json_url).json()
-            if runtime_backend.startswith("torch"):
-                fname = "xumx_slicq_v2_realtime.pth" if realtime else "xumx_slicq_v2_offline.pth"
-                state = torch.hub.load_state_dict_from_url(pth_url, file_name=fname, progress=True)
-            elif runtime_backend.startswith("onnx"):
-                # let's use torch hub's dir to save onnx file
-                onnx_dest = Path(hub_dir / "checkpoints/xumx_slicq_v2_realtime.onnx")
-                if not onnx_dest.exists():
-                    download_url(onnx_url, onnx_dest)
-                onnx_model_path = onnx_dest
+        results = requests.get(json_url).json()
+        if runtime_backend.startswith("torch"):
+            fname = "xumx_slicq_v2_realtime.pth" if realtime else "xumx_slicq_v2_offline.pth"
+            state = torch.hub.load_state_dict_from_url(pth_url, file_name=fname, progress=True)
+        elif runtime_backend.startswith("onnx"):
+            # let's use torch hub's dir to save onnx file
+            onnx_dest = Path(hub_dir / "checkpoints/xumx_slicq_v2_realtime.onnx")
+            if not onnx_dest.exists():
+                download_url(onnx_url, onnx_dest)
+            onnx_model_path = onnx_dest
 
     sample_rate = results["args"]["sample_rate"]
 

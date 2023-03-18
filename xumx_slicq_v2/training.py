@@ -66,39 +66,48 @@ def loop(
 
             # autocast/AMP on forward pass + loss only, _not_ backward pass
             with amp_cm_cuda(), amp_cm_cpu():
-                track_tensor_gpu = track_tensor.to(device).swapaxes(0, 1)
+                track_tensor_gpu_long = track_tensor.to(device).swapaxes(0, 1)
 
-                x = track_tensor_gpu[0]
+                x_long = track_tensor_gpu_long[0]
 
-                y_targets = track_tensor_gpu[1:]
+                y_targets_long = track_tensor_gpu_long[1:]
 
-                Xcomplex = nsgt(x)
+                long_loss = 0.0
 
-                Ycomplex_ests, Ymasks = unmix(Xcomplex, return_masks=True)
+                for (x, y_targets) in zip(
+                        torch.split(x_long, args.chunk_size, dim=-1),
+                        torch.split(y_targets_long, args.chunk_size, dim=-1)
+                    ):
+                    Xcomplex = nsgt(x)
 
-                Ycomplex_targets = nsgt(y_targets)
+                    Ycomplex_ests, Ymasks = unmix(Xcomplex, return_masks=True)
 
-                if sdr_criterion is not None:
-                    y_ests = insgt(Ycomplex_ests, x.shape[-1])
+                    Ycomplex_targets = nsgt(y_targets)
 
-                mse_loss = mse_criterion(
-                    Ycomplex_ests,
-                    Ycomplex_targets,
-                )
+                    if sdr_criterion is not None:
+                        y_ests = insgt(Ycomplex_ests, x.shape[-1])
 
-                if sdr_criterion is not None:
-                    sdr_loss = args.sdr_mcoef*sdr_criterion(
-                        y_ests,
-                        y_targets,
+                    mse_loss = mse_criterion(
+                        Ycomplex_ests,
+                        Ycomplex_targets,
                     )
-                else:
-                    sdr_loss = 0.
 
-                mask_mse_loss = mask_criterion(
-                    Ymasks
-                )
+                    if sdr_criterion is not None:
+                        sdr_loss = args.sdr_mcoef*sdr_criterion(
+                            y_ests,
+                            y_targets,
+                        )
+                    else:
+                        sdr_loss = 0.
 
-                loss = mse_loss + mask_mse_loss + sdr_loss
+                    mask_mse_loss = mask_criterion(
+                        Ymasks
+                    )
+
+                    loss = mse_loss + mask_mse_loss + sdr_loss
+                    long_loss += loss
+
+                long_loss /= 4.0
 
             if train:
                 optimizer.zero_grad()
@@ -164,6 +173,7 @@ def training_main():
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--batch-size-valid", type=int, default=1)
+    parser.add_argument("--chunk-size", type=int, default=1000000000) # default: no chunks
     parser.add_argument(
         "--lr", type=float, default=0.001, help="learning rate, defaults to 1e-3"
     )
@@ -212,6 +222,12 @@ def training_main():
         help="realtime variant (causal convs, no wiener)",
     )
     parser.add_argument(
+        "--lstm",
+        action="store_true",
+        default=False,
+        help="use original UMX lstm nn architecture",
+    )
+    parser.add_argument(
         "--seq-dur",
         type=float,
         default=2.0,
@@ -220,7 +236,7 @@ def training_main():
     )
     parser.add_argument(
         "--fscale",
-        choices=("bark", "mel", "cqlog", "vqlog"),
+        choices=("bark", "mel", "cqlog", "vqlog", "linear", "mrstft"),
         default="bark",
         help="frequency scale for sliCQ-NSGT",
     )
@@ -239,7 +255,7 @@ def training_main():
     parser.add_argument(
         "--fgamma",
         type=float,
-        default=15.0,
+        default=0.0,
         help="gamma for variable-Q offset",
     )
     parser.add_argument(
@@ -354,6 +370,7 @@ def training_main():
     unmix = model.Unmix(
         jagged_slicq_cnorm,
         realtime=args.realtime,
+        lstm=args.lstm,
         input_means=scaler_mean,
         input_scales=scaler_std,
     ).to(device, memory_format=torch.channels_last)
@@ -443,9 +460,13 @@ def training_main():
     torch.set_float32_matmul_precision = "medium"
 
     print(
-        "Enabling CUDA+CPU Automatic Mixed Precision with bfloat16/float16 for forward pass + loss"
+        "Enabling CUDA+CPU Automatic Mixed Precision with for forward pass + loss"
     )
-    amp_cm_cuda = lambda: torch.autocast("cuda", dtype=torch.bfloat16)
+
+    # lstm can only support float16 optimizations
+    cuda_autocast_dtype = torch.bfloat16 if not args.lstm else torch.float16
+    amp_cm_cuda = lambda: torch.autocast("cuda", dtype=cuda_autocast_dtype)
+
     amp_cm_cpu = lambda: torch.autocast("cpu", dtype=torch.bfloat16)
 
     for epoch in t:
@@ -506,16 +527,13 @@ def training_main():
         # save params
         params = {
             "epochs_trained": epoch,
-            "args": vars(args),
+            "args": {**vars(args), **{"sample_rate": train_dataset.sample_rate, "nb_channels": 2, "seq_dur": args.seq_dur}},
             "best_loss": es.best,
             "best_epoch": best_epoch,
             "train_loss_history": train_losses,
             "valid_loss_history": valid_losses,
             "train_time_history": train_times,
             "num_bad_epochs": es.num_bad_epochs,
-            "sample_rate": train_dataset.sample_rate,
-            "nb_channels": 2,
-            "seq_dur": args.seq_dur,  # have to do inference in chunks of seq_dur in CNN architecture
         }
 
         with open(Path(target_path, "xumx_slicq_v2.json"), "w") as outfile:

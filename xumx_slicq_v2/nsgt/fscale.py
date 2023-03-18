@@ -168,3 +168,59 @@ class MelScale(Scale):
         odivs = (torch.exp(mel / -1127.0) - 1.0) * (-781.177 / self.mbnd)
         pow2n = torch.pow(2, 1.0 / odivs)
         return torch.sqrt(pow2n) / (pow2n - 1.0) / 2.0
+
+
+class LinScale(Scale):
+    def __init__(self, fmin, fmax, bnds, beyond=0, device="cpu"):
+        """
+        @param fmin: minimum frequency (Hz)
+        @param fmax: maximum frequency (Hz)
+        @param bnds: number of frequency bands (int)
+        @param beyond: number of frequency bands below fmin and above fmax (int)
+        """
+        self.df = float(fmax-fmin)/(bnds-1)
+        Scale.__init__(self, bnds+beyond*2)
+        self.fmin = float(fmin)-self.df*beyond
+        if self.fmin <= 0:
+            raise ValueError("Frequencies must be > 0.")
+        self.fmax = float(fmax)+self.df*beyond
+
+    def F(self, bnd=None):
+        return (bnd if bnd is not None else torch.arange(self.bnds, device=self.device, requires_grad=False))*self.df+self.fmin
+
+    def Q(self, bnd=None):
+        return self.F(bnd)/(self.df*2)
+
+
+class MRSTFTScale(Scale):
+    def __init__(self, device="cpu"):
+        self.device = device
+
+        self.mr_scales = [
+            (1.0, 400.0, 128),
+            (401.0, 1200.0, 128),
+            (1201.0, 4000.0, 128),
+            (4001.0, 12000.0, 128),
+            (12001.0, 22050.0, 64),
+        ]
+
+        self.freqs = [
+            torch.linspace(mr_scale[0], mr_scale[1], mr_scale[2], device=self.device)
+            for mr_scale in self.mr_scales
+        ]
+        self.dfs = [
+            torch.as_tensor([(mr_scale[1] - mr_scale[0])/mr_scale[2]]*len(self.freqs[i]))
+            for i, mr_scale in enumerate(self.mr_scales)
+        ]
+        self.Fs = torch.cat(self.freqs)
+        self.dfs = torch.cat(self.dfs)
+        self.Qs = self.Fs/self.dfs*2
+
+        bnds = len(self.Fs)
+        Scale.__init__(self, bnds)
+
+    def F(self, bnd=None):
+        return self.Fs[bnd] if bnd is not None else self.Fs
+
+    def Q(self, bnd=None):
+        return self.Qs[bnd]

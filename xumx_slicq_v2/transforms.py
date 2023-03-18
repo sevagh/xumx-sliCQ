@@ -4,7 +4,8 @@ from torch import Tensor
 import torch.nn as nn
 import warnings
 
-from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale
+from .nsgt import NSGT_sliced, BarkScale, MelScale, LogScale, LinScale
+from .nsgt.fscale import MRSTFTScale
 
 
 def make_filterbanks(nsgt_base, sample_rate=44100.0):
@@ -38,6 +39,18 @@ class NSGTBase(nn.Module):
             self.scl = LogScale(
                 self.fmin, self.fmax, self.fbins, gamma=fgamma, device=device
             )
+        elif scale == "linear":
+            # linear scale i.e. stft?
+            self.scl = LinScale(
+                self.fmin, self.fmax, self.fbins, device=device
+            )
+        elif scale == "mrstft":
+            self.scl = MRSTFTScale()
+
+        freqs, q_factors = self.scl()
+        print(f"freqs: {len(freqs)}, {freqs}")
+        print(f"q_factors: {len(q_factors)}, {q_factors}")
+        #input()
 
         self.sllen, self.trlen = self.scl.suggested_sllen_trlen(fs)
         scale_to_print = scale if scale != "vqlog" else f"vqlog (gamma={fgamma})"
