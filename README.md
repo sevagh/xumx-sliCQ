@@ -107,7 +107,7 @@ $ pip install xumx-slicq-v2[devel]
 | xumx_slicq_v2.optuna | Optuna hyperparam tuning | CUDA GPU |
 | xumx_slicq_v2.slicqfinder | Random sliCQT param search | CPU **or** CUDA GPU |
 | xumx_slicq_v2.visualization | Generate spectrograms | CPU |
-| xumx_slicq_v2.export_onnx | Generate ONNX model for optimized inference | CPU |
+| xumx_slicq_v2.export | Export variants for optimized inference (TorchScript, ONNX) | CPU |
 
 If you installed the package with pip, run them like `python -m xumx_slicq_v2.$script_name`.
 

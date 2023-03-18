@@ -16,13 +16,19 @@ import argparse
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 Export to ONNXRuntime")
+    parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 export")
 
     parser.add_argument(
         "--offline",
         action="store_true",
         default=False,
         help="Use offline model instead of realtime",
+    )
+    parser.add_argument(
+        "--target",
+        choices=("onnx", "torchscript"),
+        default="onnx",
+        help="Export model",
     )
 
     args = parser.parse_args()
@@ -34,7 +40,7 @@ if __name__ == "__main__":
     else:
         model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"
 
-    print(f"Exporting to ONNX format")
+    print(f"Exporting to format: {args.target}")
 
     model_path = Path(model_path)
 
@@ -82,17 +88,23 @@ if __name__ == "__main__":
     xumx_model.freeze()
     xumx_model.to(device)
 
-    dest_path = Path(model_path, f"{model_name}.onnx")
+    if args.target == "onnx":
+        dest_path = Path(model_path, f"{model_name}.onnx")
 
-    torch.onnx.export(
-        xumx_model,
-        (tuple([jagged_slicq_.to(device) for jagged_slicq_ in jagged_slicq]),),
-        dest_path,
-        input_names=[f"xcomplex{i}" for i in range(len(jagged_slicq))],
-        output_names=[f"ycomplex{i}" for i in range(len(jagged_slicq))],
-        dynamic_axes={
-            **{f"xcomplex{i}": {3: "nb_slices"} for i in range(len(jagged_slicq))},
-            **{f"ycomplex{i}": {4: "nb_slices"} for i in range(len(jagged_slicq))},
-        },
-        opset_version=16,
-    )
+        torch.onnx.export(
+            xumx_model,
+            (tuple([jagged_slicq_.to(device) for jagged_slicq_ in jagged_slicq]),),
+            dest_path,
+            input_names=[f"xcomplex{i}" for i in range(len(jagged_slicq))],
+            output_names=[f"ycomplex{i}" for i in range(len(jagged_slicq))],
+            dynamic_axes={
+                **{f"xcomplex{i}": {3: "nb_slices"} for i in range(len(jagged_slicq))},
+                **{f"ycomplex{i}": {4: "nb_slices"} for i in range(len(jagged_slicq))},
+            },
+            opset_version=16,
+        )
+    elif args.target == "torchscript":
+        dest_path = Path(model_path, f"{model_name}.pt")
+
+        ts_model = torch.jit.trace(xumx_model, (jagged_slicq,))
+        ts_model.save(dest_path)

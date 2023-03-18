@@ -48,9 +48,8 @@ class NSGTBase(nn.Module):
             self.scl = MRSTFTScale()
 
         freqs, q_factors = self.scl()
-        print(f"freqs: {len(freqs)}, {freqs}")
-        print(f"q_factors: {len(q_factors)}, {q_factors}")
-        #input()
+        #print(f"freqs: {len(freqs)}, {freqs}")
+        #print(f"q_factors: {len(q_factors)}, {q_factors}")
 
         self.sllen, self.trlen = self.scl.suggested_sllen_trlen(fs)
         scale_to_print = scale if scale != "vqlog" else f"vqlog (gamma={fgamma})"

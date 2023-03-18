@@ -71,9 +71,9 @@ def inference_main():
     )
     parser.add_argument(
         "--runtime-backend",
-        type=str,
         default="torch-cpu",
-        help="Set model backend (`torch-cpu`, `torch-cuda`, `onnx-cpu`, `onnx-cuda`), defaults to `torch-cpu`",
+        choices=("torch-cpu", "torch-cuda", "onnx-cpu", "onnx-cuda"),
+        help="Set model backend, defaults to `torch-cpu`",
     )
     parser.add_argument(
         "--realtime",
