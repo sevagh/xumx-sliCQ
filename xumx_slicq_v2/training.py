@@ -24,6 +24,7 @@ from .data import MUSDBDataset, custom_collate
 from xumx_slicq_v2 import model
 from xumx_slicq_v2 import transforms
 from xumx_slicq_v2.separator import Separator
+from xumx_slicq_v2.loss import ComplexMSELossCriterion, MaskSumLossCriterion, SDRLossCriterion
 
 tqdm.monitor_interval = 0
 
@@ -34,7 +35,9 @@ def loop(
     encoder,
     device,
     sampler,
-    criterion,
+    mse_criterion,
+    sdr_criterion,
+    mask_criterion,
     optimizer,
     amp_cm_cuda,
     amp_cm_cpu,
@@ -75,25 +78,27 @@ def loop(
 
                 Ycomplex_targets = nsgt(y_targets)
 
-                mse_loss = criterion(
+                if sdr_criterion is not None:
+                    y_ests = insgt(Ycomplex_ests, x.shape[-1])
+
+                mse_loss = mse_criterion(
                     Ycomplex_ests,
                     Ycomplex_targets,
                 )
 
-                mask_mse_loss = 0.0
+                if sdr_criterion is not None:
+                    sdr_loss = args.sdr_mcoef*sdr_criterion(
+                        y_ests,
+                        y_targets,
+                    )
+                else:
+                    sdr_loss = 0.
 
-                ideal_sum_of_masks = [None] * len(Ymasks)
+                mask_mse_loss = mask_criterion(
+                    Ymasks
+                )
 
-                # sum of all 4 target masks should be exactly 1.0
-                for i, Ymask in enumerate(Ymasks):
-                    Ymask_sum = torch.sum(Ymask, dim=0, keepdims=False)
-                    ideal_mask = torch.ones_like(Ymask_sum)
-
-                    mask_mse_loss += torch.mean((Ymask_sum - ideal_mask) ** 2)
-
-                mask_mse_loss /= len(Ymasks)
-
-                loss = mse_loss + mask_mse_loss
+                loss = mse_loss + mask_mse_loss + sdr_loss
 
             if train:
                 optimizer.zero_grad()
@@ -150,10 +155,12 @@ def get_statistics(args, encoder, dataset, time_blocks):
 def training_main():
     parser = argparse.ArgumentParser(description="xumx-sliCQ-V2 Trainer")
 
-    # Dataset paramaters; always /MUSDB18-HQ
+    # Dataset paramaters
+    parser.add_argument("--musdb-root", type=str, default="/MUSDB18-HQ")
     parser.add_argument("--samples-per-track", type=int, default=64)
 
     # Training Parameters
+    parser.add_argument("--model-path", type=str, default="/model")
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--batch-size-valid", type=int, default=1)
@@ -191,6 +198,12 @@ def training_main():
         action="store_true",
         default=False,
         help="skip dataset statistics calculation",
+    )
+    parser.add_argument(
+        "--sdr-mcoef",
+        type=float,
+        default=-1.,
+        help="enable SDR loss if mcoef > 0.0",
     )
     parser.add_argument(
         "--realtime",
@@ -273,10 +286,11 @@ def training_main():
         args.seed,
         args.seq_dur,
         samples_per_track=args.samples_per_track,
+        musdb_root=args.musdb_root,
     )
 
     # create output dir if not exist
-    target_path = Path("/model")
+    target_path = Path(args.model_path)
     target_path.mkdir(parents=True, exist_ok=True)
 
     # check if it already contains a pytorch model
@@ -344,6 +358,10 @@ def training_main():
         input_scales=scaler_std,
     ).to(device, memory_format=torch.channels_last)
 
+    if '2.0.0' in torch.__version__:
+        print("Running torch.compile (pytorch 2.0)...")
+        unmix = torch.compile(unmix)
+
     if not args.quiet:
         torchinfo.summary(unmix, input_data=(jagged_slicq,))
 
@@ -351,7 +369,11 @@ def training_main():
         unmix.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
 
-    mse_criterion = _ComplexMSELossCriterion()
+    mse_criterion = ComplexMSELossCriterion()
+    sdr_criterion = None
+    if args.sdr_mcoef > 0.0:
+        sdr_criterion = SDRLossCriterion()
+    mask_criterion = MaskSumLossCriterion()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -417,10 +439,11 @@ def training_main():
 
     print("Enabling FP32 (ampere) optimizations for matmul and cudnn")
     torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_float32_matmul_precision = "medium"
 
     print(
-        "Enabling CUDA+CPU Automatic Mixed Precision with bfloat16 for forward pass + loss"
+        "Enabling CUDA+CPU Automatic Mixed Precision with bfloat16/float16 for forward pass + loss"
     )
     amp_cm_cuda = lambda: torch.autocast("cuda", dtype=torch.bfloat16)
     amp_cm_cpu = lambda: torch.autocast("cpu", dtype=torch.bfloat16)
@@ -435,6 +458,8 @@ def training_main():
             device,
             train_sampler,
             mse_criterion,
+            sdr_criterion,
+            mask_criterion,
             optimizer,
             amp_cm_cuda,
             amp_cm_cpu,
@@ -447,6 +472,8 @@ def training_main():
             device,
             valid_sampler,
             mse_criterion,
+            sdr_criterion,
+            mask_criterion,
             None,
             amp_cm_cuda,
             amp_cm_cpu,
@@ -577,48 +604,6 @@ class _EarlyStopping(object):
             self.is_better = lambda a, best: a < best - min_delta
         if mode == "max":
             self.is_better = lambda a, best: a > best + min_delta
-
-
-class _ComplexMSELossCriterion:
-    def __init__(self):
-        pass
-
-    def __call__(
-        self,
-        pred_complex,
-        target_complex,
-    ):
-        loss = 0.0
-        for i, (pred_block, target_block) in enumerate(
-            zip(pred_complex, target_complex)
-        ):
-            mse_loss = 0.0
-
-            # 4C1 Combination Losses
-            for j in [0, 1, 2, 3]:
-                mse_loss += self._inner_mse_loss(pred_block[j], target_block[j])
-
-            # 4C2 Combination Losses
-            for (j, k) in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]:
-                mse_loss += self._inner_mse_loss(
-                    pred_block[j] + pred_block[k],
-                    target_block[j] + target_block[k],
-                )
-
-            # 4C3 Combination Losses
-            for (j, k, l) in [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)]:
-                mse_loss += self._inner_mse_loss(
-                    pred_block[j] + pred_block[k] + pred_block[l],
-                    target_block[j] + target_block[k] + target_block[l],
-                )
-
-            loss += mse_loss / 14.0
-        return loss / len(pred_complex)
-
-    @staticmethod
-    def _inner_mse_loss(pred_block, target_block):
-        assert pred_block.shape[-1] == target_block.shape[-1] == 2
-        return torch.mean((pred_block - target_block) ** 2)
 
 
 if __name__ == "__main__":

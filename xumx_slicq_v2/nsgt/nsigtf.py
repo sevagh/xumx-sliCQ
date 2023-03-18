@@ -35,9 +35,6 @@ def nsigtf_sl(cseq, gd, wins, nn, Ls=None, real=False, reducedform=0, device="cp
     fr = torch.zeros(
         *cseq_shape[:2], nn, dtype=cseq_dtype, device=torch.device(device)
     )  # Allocate output
-    temp0 = torch.empty(
-        *cseq_shape[:2], maxLg, dtype=fr.dtype, device=torch.device(device)
-    )  # pre-allocation
 
     fbins = cseq_shape[2]
 
@@ -55,32 +52,32 @@ def nsigtf_sl(cseq, gd, wins, nn, Ls=None, real=False, reducedform=0, device="cp
         Lg_outer = fc.shape[-1]
 
         nb_fbins = fc.shape[2]
-        for i, (wr1, wr2, Lg) in enumerate(
+        for j, (wr1, wr2, Lg) in enumerate(
             loopparams[fbin_ptr : fbin_ptr + nb_fbins][:fbins]
         ):
-            freq_idx = fbin_ptr + i
-
+            freq_idx = fbin_ptr + j
             assert Lg == Lg_outer
 
-            t = fc[:, :, i]
+            t = fc[:, :, j]
 
             r = (Lg + 1) // 2
             l = Lg // 2
 
-            t1 = temp0[:, :, :r]
-            t2 = temp0[:, :, Lg - l : Lg]
+            t1 = t[:, :, :r]
+            t2 = t[:, :, Lg - l : Lg]
 
-            t1[:, :, :] = t[:, :, :r]
-            t2[:, :, :] = t[:, :, Lg - l : Lg]
-
-            temp0[:, :, :Lg] *= gdiis[freq_idx, :Lg]
-            temp0[:, :, :Lg] *= Lg
+            t[:, :, :Lg] *= gdiis[freq_idx, :Lg]
+            t[:, :, :Lg] *= Lg
 
             fr[:, :, wr1] += t2
             fr[:, :, wr2] += t1
         fbin_ptr += nb_fbins
 
     ftr = fr[:, :, : nn // 2 + 1] if real else fr
-    sig = ifft(ftr, n=nn)
-    sig = sig[:, :, :Ls]  # Truncate the signal to original length (if given)
+
+    # vvvv the GRADIENT KILLER
+    #with torch.no_grad():
+    sig = ifft(ftr, n=Ls)
+    # ^^^^ find a way to optimize this and win...
+
     return sig
