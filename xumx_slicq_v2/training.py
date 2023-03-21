@@ -19,7 +19,7 @@ from contextlib import nullcontext
 import sklearn.preprocessing
 from torch.utils.tensorboard import SummaryWriter
 
-from .data import MUSDBDataset, custom_collate
+from .data import MUSDBDataset, PeripheryDataset, custom_collate
 
 from xumx_slicq_v2 import model
 from xumx_slicq_v2 import transforms
@@ -66,48 +66,39 @@ def loop(
 
             # autocast/AMP on forward pass + loss only, _not_ backward pass
             with amp_cm_cuda(), amp_cm_cpu():
-                track_tensor_gpu_long = track_tensor.to(device).swapaxes(0, 1)
+                track_tensor_gpu = track_tensor.to(device).swapaxes(0, 1)
 
-                x_long = track_tensor_gpu_long[0]
+                x = track_tensor_gpu[0]
 
-                y_targets_long = track_tensor_gpu_long[1:]
+                y_targets = track_tensor_gpu[1:]
 
-                long_loss = 0.0
+                Xcomplex = nsgt(x)
 
-                for (x, y_targets) in zip(
-                        torch.split(x_long, args.chunk_size, dim=-1),
-                        torch.split(y_targets_long, args.chunk_size, dim=-1)
-                    ):
-                    Xcomplex = nsgt(x)
+                Ycomplex_ests, Ymasks = unmix(Xcomplex, return_masks=True)
 
-                    Ycomplex_ests, Ymasks = unmix(Xcomplex, return_masks=True)
+                Ycomplex_targets = nsgt(y_targets)
 
-                    Ycomplex_targets = nsgt(y_targets)
+                if sdr_criterion is not None:
+                    y_ests = insgt(Ycomplex_ests, x.shape[-1])
 
-                    if sdr_criterion is not None:
-                        y_ests = insgt(Ycomplex_ests, x.shape[-1])
+                mse_loss = mse_criterion(
+                    Ycomplex_ests,
+                    Ycomplex_targets,
+                )
 
-                    mse_loss = mse_criterion(
-                        Ycomplex_ests,
-                        Ycomplex_targets,
+                if sdr_criterion is not None:
+                    sdr_loss = args.sdr_mcoef*sdr_criterion(
+                        y_ests,
+                        y_targets,
                     )
+                else:
+                    sdr_loss = 0.
 
-                    if sdr_criterion is not None:
-                        sdr_loss = args.sdr_mcoef*sdr_criterion(
-                            y_ests,
-                            y_targets,
-                        )
-                    else:
-                        sdr_loss = 0.
+                mask_mse_loss = mask_criterion(
+                    Ymasks
+                )
 
-                    mask_mse_loss = mask_criterion(
-                        Ymasks
-                    )
-
-                    loss = mse_loss + mask_mse_loss + sdr_loss
-                    long_loss += loss
-
-                long_loss /= 4.0
+                loss = mse_loss + mask_mse_loss + sdr_loss
 
             if train:
                 optimizer.zero_grad()
@@ -166,14 +157,20 @@ def training_main():
 
     # Dataset paramaters
     parser.add_argument("--musdb-root", type=str, default="/MUSDB18-HQ")
+    parser.add_argument("--periphery-root", type=str, default="/Periphery")
     parser.add_argument("--samples-per-track", type=int, default=64)
+    parser.add_argument(
+        "--periphery-dataset",
+        action="store_true",
+        default=False,
+        help="use periphery dataset instead of musdb",
+    )
 
     # Training Parameters
     parser.add_argument("--model-path", type=str, default="/model")
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--batch-size-valid", type=int, default=1)
-    parser.add_argument("--chunk-size", type=int, default=1000000000) # default: no chunks
     parser.add_argument(
         "--lr", type=float, default=0.001, help="learning rate, defaults to 1e-3"
     )
@@ -298,12 +295,20 @@ def training_main():
     if use_cuda and args.cuda_device >= 0:
         device = torch.device(args.cuda_device)
 
-    train_dataset, valid_dataset = MUSDBDataset.load_datasets(
-        args.seed,
-        args.seq_dur,
-        samples_per_track=args.samples_per_track,
-        musdb_root=args.musdb_root,
-    )
+    if not args.periphery_dataset:
+        train_dataset, valid_dataset = MUSDBDataset.load_datasets(
+            args.seed,
+            args.seq_dur,
+            samples_per_track=args.samples_per_track,
+            musdb_root=args.musdb_root,
+        )
+    else:
+        train_dataset, valid_dataset = PeripheryDataset.load_datasets(
+            args.seed,
+            args.seq_dur,
+            samples_per_track=args.samples_per_track,
+            periphery_root=args.periphery_root,
+        )
 
     # create output dir if not exist
     target_path = Path(args.model_path)
@@ -542,8 +547,8 @@ def training_main():
         train_times.append(time.time() - end)
 
         if tboard_writer is not None:
-            tboard_writer.add_scalar(f"Loss/train (MSE)", train_loss, epoch)
-            tboard_writer.add_scalar(f"Loss/valid (MSE)", valid_loss, epoch)
+            tboard_writer.add_scalar("Loss/train", train_loss, epoch)
+            tboard_writer.add_scalar("Loss/valid", valid_loss, epoch)
 
         if stop:
             print("Apply Early Stopping")

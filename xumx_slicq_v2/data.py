@@ -1,6 +1,7 @@
 import random
 from pathlib import Path
 from typing import Optional, Union, Tuple, Callable
+import os
 
 import torch
 import torch.utils.data
@@ -390,6 +391,189 @@ class MUSDBDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.mus.tracks) * self.samples_per_track
+
+    def __repr__(self) -> str:
+        head = "Dataset " + self.__class__.__name__
+        body = ["Number of datapoints: {}".format(self.__len__())]
+        body += self.extra_repr().splitlines()
+        lines = [head] + [" " * self._repr_indent + line for line in body]
+        return "\n".join(lines)
+
+    def extra_repr(self) -> str:
+        return ""
+
+
+class PeripheryDataset(torch.utils.data.Dataset):
+    @staticmethod
+    def load_datasets(
+        seed: int,
+        train_seq_dur: float,
+        samples_per_track: int = 64,
+        periphery_root: str = "/Periphery",
+    ):
+        dataset_kwargs = {
+            "root": periphery_root,
+            "seed": seed,
+            "fixed_start": -1.0,
+        }
+
+        source_augmentations = aug_from_str(["gain", "channelswap"])
+
+        train_dataset = PeripheryDataset(
+            split="train",
+            samples_per_track=samples_per_track,
+            seq_duration=train_seq_dur,
+            source_augmentations=source_augmentations,
+            random_track_mix=True,
+            **dataset_kwargs,
+        )
+
+        valid_dataset = PeripheryDataset(
+            split="valid",
+            samples_per_track=1,
+            seq_duration=None,
+            **dataset_kwargs,
+        )
+
+        return train_dataset, valid_dataset
+
+    def __init__(
+        self,
+        root: str = None,
+        split: str = "train",
+        seq_duration: Optional[float] = 6.0,
+        samples_per_track: int = 64,
+        source_augmentations: Optional[Callable] = lambda audio: audio,
+        random_track_mix: bool = False,
+        fixed_start: int = -1,
+        seed: int = 42,
+        *args,
+        **kwargs,
+    ) -> None:
+        self.seed = seed
+        random.seed(seed)
+        self.seq_duration = seq_duration
+        self.split = split
+        self.samples_per_track = samples_per_track
+        self.source_augmentations = source_augmentations
+        self.random_track_mix = random_track_mix
+        self.fixed_start = fixed_start
+        self.periphery_root = root
+        print(f"root is: {root}")
+        print(f"self.periphery_root is: {self.periphery_root}")
+        self.split = split
+
+        self.tracks = []
+        split_dir = os.path.join(self.periphery_root, f"./{self.split}")
+        self.sample_rate = 44100.0  # musdb is fixed sample rate
+
+        print(f"searching {split_dir} for tracks and loading them to memory...")
+        for track in os.listdir(split_dir):
+            track_path = os.path.join(split_dir, track)
+
+            mixture_wav, sr = torchaudio.load(os.path.join(track_path, "mixture.wav"))
+            bass_wav, sr = torchaudio.load(os.path.join(track_path, "bass.wav"))
+            drums_wav, sr = torchaudio.load(os.path.join(track_path, "drums.wav"))
+            vocals_wav, sr = torchaudio.load(os.path.join(track_path, "vocals.wav"))
+            other_wav, sr = torchaudio.load(os.path.join(track_path, "other.wav"))
+            track_duration = float(bass_wav.shape[-1])/self.sample_rate
+
+            self.tracks.append({
+                'track_path': track_path,
+                'track_name': track,
+                'track_duration': track_duration,
+                'sources': {
+                    "mixture": mixture_wav,
+                    "bass": bass_wav,
+                    "vocals": vocals_wav,
+                    "drums": drums_wav,
+                    "other": other_wav,
+                }
+            })
+
+    def __getitem__(self, index):
+        audio_sources = []
+
+        # select track
+        track = self.tracks[index // self.samples_per_track]
+
+        # at training time we assemble a custom mix
+        if self.seq_duration:
+            for k, source in enumerate(["bass", "drums", "other", "vocals"]):
+                # select a random track
+                if self.random_track_mix:
+                    track = random.choice(self.tracks)
+
+                # set the excerpt duration
+
+                # don't try to make a bigger duration than exists
+                # but we still want to limit so that we're not trying
+                # to take the NSGT of an entire 5 minute track
+                track_duration = track["track_duration"]
+                dur = min(track_duration, self.seq_duration)
+
+                track_chunk_duration_samples = int(dur*self.sample_rate)
+
+                if self.fixed_start < 0:
+                    # set random start position
+                    track_chunk_start = random.uniform(0, track_duration - dur)
+                else:
+                    # start at fixed position for debugging purposes
+                    track_chunk_start = self.fixed_start
+
+                track_chunk_start_samples = int(track_chunk_start*self.sample_rate)
+
+                # load source audio and apply time domain source_augmentations
+
+                target_wav = track["sources"][source][:, track_chunk_start_samples:track_chunk_start_samples+track_chunk_duration_samples]
+                audio = torch.as_tensor(
+                    target_wav, dtype=torch.float32
+                )
+                audio = self.source_augmentations(audio)
+                audio_sources.append(audio)
+
+                if source == "vocals":
+                    y_vocals = audio
+                elif source == "bass":
+                    y_bass = audio
+                elif source == "other":
+                    y_other = audio
+                elif source == "drums":
+                    y_drums = audio
+
+            # create stem tensor of shape (source, channel, samples)
+            stems = torch.stack(audio_sources, dim=0)
+            # # apply linear mix over source index=0
+            x = stems.sum(0)
+
+        # for validation and test, we deterministically yield the full
+        # pre-mixed musdb track
+        else:
+            x = torch.as_tensor(track["sources"]["mixture"], dtype=torch.float32)
+            y_bass = torch.as_tensor(track["sources"]["bass"], dtype=torch.float32)
+            y_vocals = torch.as_tensor(
+                track["sources"]["vocals"], dtype=torch.float32
+            )
+            y_other = torch.as_tensor(
+                track["sources"]["other"], dtype=torch.float32
+            )
+            y_drums = torch.as_tensor(
+                track["sources"]["drums"], dtype=torch.float32
+            )
+
+        return torch.cat(
+            [
+                torch.unsqueeze(x, dim=0),
+                torch.unsqueeze(y_bass, dim=0),
+                torch.unsqueeze(y_vocals, dim=0),
+                torch.unsqueeze(y_other, dim=0),
+                torch.unsqueeze(y_drums, dim=0),
+            ],
+            dim=0,
+        )
+
+    def __len__(self):
+        return len(self.tracks) * self.samples_per_track
 
     def __repr__(self) -> str:
         head = "Dataset " + self.__class__.__name__
