@@ -11,6 +11,10 @@ logdir
 !pretrained_model*/*.json
 !pretrained_model*/*.onnx
 !pretrained_model*/*.ts
+!.github/pretrained_models_other/pretrained_model*/*.pth
+!.github/pretrained_models_other/pretrained_model*/*.json
+!.github/pretrained_models_other/pretrained_model*/*.onnx
+!.github/pretrained_models_other/pretrained_model*/*.ts
 *.whl
 *.egg-info
 /build

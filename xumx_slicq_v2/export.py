@@ -30,12 +30,20 @@ if __name__ == "__main__":
         default="onnx",
         help="Export model",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="choose a nonstandard pretrained model",
+    )
 
     args = parser.parse_args()
     sample_rate = 44100
-    device = torch.device("cuda")
+    device = torch.device("cpu")
 
-    if args.offline:
+    if args.model is not None:
+        model_path = f"/xumx-sliCQ-V2/.github/pretrained_models_other/{args.model}"
+    elif args.offline:
         model_path = "/xumx-sliCQ-V2/pretrained_model"
     else:
         model_path = "/xumx-sliCQ-V2/pretrained_model_realtime"

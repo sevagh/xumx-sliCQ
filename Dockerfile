@@ -10,7 +10,7 @@ RUN git clone https://github.com/pytorch/audio /torchaudio
 WORKDIR /torchaudio
 RUN python -m pip wheel --no-build-isolation --no-deps ./ --wheel-dir /wheelhouse
 
-RUN python -m pip download onnxruntime-gpu -d /wheelhouse
+RUN python -m pip download onnxruntime -d /wheelhouse
 
 #################
 # RUNTIME STAGE #
@@ -38,5 +38,5 @@ RUN python -m pip install -e .
 COPY . /xumx-sliCQ-V2
 WORKDIR /xumx-sliCQ-V2
 
-ARG ONNX_DEPS="onnxruntime-cuda"
+ARG ONNX_DEPS="onnxruntime-cpu"
 RUN python -m pip install --pre -e .[devel,${ONNX_DEPS}] --find-links /wheelhouse

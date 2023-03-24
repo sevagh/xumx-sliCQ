@@ -9,7 +9,6 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 1. Spectral transform: sliced Constant-Q Transform (sliCQT) with the Bark scale vs. STFT
 1. Neural network architecture: convolutional denoising autoencoder (CDAE) vs. dense + Bi-LSTM
 1. All targets are trained together with combined loss functions like [CrossNet-Open-Unmix (X-UMX)](https://github.com/sony/ai-research-code/blob/master/x-umx/x-umx.md)
-1. Differentiable Wiener filtering is vendored under `xumx_slicq_v2.norbert` from [this PyTorch fork](https://github.com/yoyololicon/norbert) of the [sigsep/norbert library](https://github.com/sigsep/norbert)
 
 **xumx-sliCQ-V2 scores a total SDR of 4.4 dB with 60 MB\* of pretrained weights for all targets** on the MUSDB18-HQ test set.
 
@@ -23,6 +22,8 @@ Cite xumx-sliCQ-V2:
 (TODO latex citation block here)
 write arxiv paper
 ```-->
+
+Some of the code in this repo is vendored from different external sources: [`xumx_slicq_v2.norbert`](./xumx_slicq_v2/norbert) from <https://github.com/yoyololicon/norbert> and [`cadenza`](./cadenza) from <https://github.com/claritychallenge/clarity/tree/main/recipes/cad1>
 
 <sub>
 
@@ -41,11 +42,6 @@ write arxiv paper
 ‡: UMX and X-UMX were independently re-evaluated as part of xumx-sliCQ: [1](https://github.com/sevagh/xumx_slicq_extra/blob/main/old-latex/mdx-submissions21/paper.md#results), [2](https://github.com/sevagh/xumx_slicq_extra)
 
 </sub>
-
-### Roadmap
-
-* Submit paper to arXiv
-* Submission to [Cadenza Challenge](http://cadenzachallenge.org/)
 
 ## Key concepts
 
