@@ -48,7 +48,7 @@ class Separator(nn.Module):
         cls,
         chunk_size: int = 2621440,
         model_path: Optional[str] = None,
-        runtime_backend: Optional[str] = "torch",
+        runtime_backend: Optional[str] = "torch-cpu",
         warmup: int = 0,
         realtime: bool = False,
         device: Union[str, torch.device] = "cpu",
@@ -99,6 +99,10 @@ class Separator(nn.Module):
     ):
         super(Separator, self).__init__()
         # saving parameters
+
+        # to be compatible with cadenza code
+        # following the same order of data.py
+        self.sources = ["bass", "vocals", "other", "drums"]
 
         self.device = device
         self.nb_channels = 2
@@ -230,7 +234,7 @@ class Separator(nn.Module):
         estimates_dict = {}
 
         # follow the ordering in data.py
-        for k, target in enumerate(["bass", "vocals", "other", "drums"]):
+        for k, target in enumerate(self.sources):
             estimates_dict[target] = estimates[k]
 
         if aggregate_dict is not None:

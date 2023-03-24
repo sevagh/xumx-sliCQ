@@ -10,6 +10,8 @@ RUN git clone https://github.com/pytorch/audio /torchaudio
 WORKDIR /torchaudio
 RUN python -m pip wheel --no-build-isolation --no-deps ./ --wheel-dir /wheelhouse
 
+RUN python -m pip download onnxruntime-gpu -d /wheelhouse
+
 #################
 # RUNTIME STAGE #
 #################
@@ -23,6 +25,14 @@ RUN python -m pip install --upgrade pip
 COPY --from=devel /wheelhouse /wheelhouse
 
 RUN python -m pip install /wheelhouse/torchaudio*.whl
+RUN python -m pip install /wheelhouse/onnxruntime*.whl
+
+# install clarity from source
+RUN git clone https://github.com/claritychallenge/clarity /clarity
+WORKDIR /clarity
+# install deps for clarity
+RUN python -m pip install hydra pandas omegaconf
+RUN python -m pip install -e .
 
 # install xumx-slicq-v2 from source to get its dependencies
 COPY . /xumx-sliCQ-V2

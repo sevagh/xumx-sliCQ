@@ -224,7 +224,7 @@ By default, the pretrained model will be evaluated. **Pass different models to e
 ```
 $ docker run --rm -it \
     -v /path/to/MUSDB18-HQ/dataset:/MUSDB18-HQ \
-    -v /path/to//xumx-sliCQ-V2/source/code:/xumx-sliCQ-V2/ \
+    -v /path/to/xumx-sliCQ-V2/source/code:/xumx-sliCQ-V2/ \
     xumx-slicq-v2 \
     python -m xumx_slicq_v2.evaluation \
     --model-path='/xumx-sliCQ-V2/model-to-evaluate'
@@ -250,6 +250,25 @@ To get the total SDR, simply sum the four target SDRs and divide by 4:
 ```
 SDR_tot = (SDR_vocals + SDR_drums + SDR_bass + SDR_other)/4.0
 ```
+
+</details>
+
+<details>
+
+<summary>Cadenza challenge inference + evaluation</summary>
+
+Code related to the Cadenza challenge is stored in the `./cadenza` package:
+```
+$ docker run --rm -it \
+    -v /path/to/MUSDB18-HQ/dataset/:/MUSDB18-HQ \
+    -v /path/to/cadenza/challenge/data/:/CADENZA \
+    -v /path/to/store/cadenza/results/:/exp \
+    xumx-slicq-v2 python -m cadenza.enhance
+```
+
+Inference for the Cadenza Challenge task 1 (cad1) uses [adapted baseline code from the recipe](https://github.com/claritychallenge/clarity/tree/main/recipes/cad1/task1/baseline), as well as custom data downloaded as part of the challenge.
+
+The baseline uses Demucs to perform VDBO separation before further processing; I simply replaced Demucs with xumx-sliCQ-V2 in enhance.py.
 
 </details>
 
