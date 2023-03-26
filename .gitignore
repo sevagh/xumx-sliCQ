@@ -4,6 +4,7 @@
 *.pth
 *.json
 *.wav
+*.m4a
 !.github/gspi.wav
 /plots
 logdir

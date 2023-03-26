@@ -96,6 +96,7 @@ class Separator(nn.Module):
         sample_rate: float = 44100.0,
         chunk_size: Optional[int] = 2621440,
         device: str = "cpu",
+        quiet: bool = False,
     ):
         super(Separator, self).__init__()
         # saving parameters
@@ -116,6 +117,7 @@ class Separator(nn.Module):
             assert onnxruntime_available
 
         self.nsgt, self.insgt, self.cnorm = encoder
+        self.quiet = quiet
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -146,7 +148,7 @@ class Separator(nn.Module):
 
         final_estimates = []
 
-        t = trange(nchunks, desc="song chunks")
+        t = trange(nchunks, desc="song chunks", disable=self.quiet)
         for chunk_idx in t:
             audio = audio_big[
                 ...,
