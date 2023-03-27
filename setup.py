@@ -52,8 +52,10 @@ setup(
         "demixui": [
             "kivy",
             "kivymd",
+            "kivy-garden",
             "onnxruntime",
             "onnx",
+            "matplotlib",
         ],
     },
     packages=find_packages(),

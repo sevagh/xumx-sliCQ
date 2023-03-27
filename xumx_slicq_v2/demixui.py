@@ -7,10 +7,9 @@ from torchaudio.io import StreamWriter
 import numpy
 from pathlib import Path
 import sys
+from scipy import signal
 from xumx_slicq_v2.separator import Separator
 from xumx_slicq_v2.data import load_audio
-from xumx_slicq_v2.kivy import DemixApp
-from kivy.app import async_runTouchApp
 
 
 def next_power_of_two(x):  
@@ -27,12 +26,6 @@ def demixui_main():
         help="Set torchaudio backend (`sox_io`, `sox`, `soundfile` or `stempeg`), defaults to `soundfile`",
     )
     parser.add_argument(
-        "--warmup",
-        type=int,
-        default=0,
-        help="Warmup iters for ONNX inference",
-    )
-    parser.add_argument(
         "--input-file",
         type=str,
         default=".github/gspi.wav",
@@ -47,9 +40,9 @@ def demixui_main():
     audio, rate = load_audio(args.input_file)
 
     xumx_separator = Separator.load(
-        model_path=".github/pretrained_models_other/pretrained_model_tiny_rt",
+        #model_path=".github/pretrained_models_other/pretrained_model_tiny_metal",
+        model_path="pretrained_model_realtime",
         runtime_backend="onnx-cpu",
-        warmup=args.warmup,
     )
     xumx_separator.quiet = True
 
@@ -65,6 +58,29 @@ def demixui_main():
     # https://pytorch.org/audio/stable/tutorials/streamwriter_advanced.html#playing-audio
     stream = StreamWriter(dst="default", format="alsa")
     stream.add_audio_stream(44100, nb_channels)
+
+    from xumx_slicq_v2.kivy import DemixApp
+    from kivy.app import async_runTouchApp
+    import matplotlib
+    matplotlib.use('module://kivy.garden.matplotlib.backend_kivy')
+    import matplotlib.pyplot as plt
+    from kivy.garden.matplotlib.backend_kivyagg import FigureCanvas
+
+    def get_spectrogram(x, fs):
+        with plt.style.context(('dark_background')):
+            figure = plt.figure()
+            #figure.set_facecolor('gray')
+            #figure.patch.set_alpha(0.3)
+
+            # Compute and plot the spectrogram.
+            f, t, Sxx = signal.spectrogram(torch.mean(x.T, axis=0), fs)
+            plt.ylabel('Frequency [Hz]')
+            plt.xlabel('Time [sec]')
+            plt.pcolormesh(t, f, Sxx)
+            #plt.show()
+            wid = FigureCanvas(figure)
+            plt.close()
+        return wid
 
     demix_app = DemixApp(nb_chunks)
 
@@ -93,13 +109,13 @@ def demixui_main():
                         vocals_level = 1.0
                         other_level = 1.0
 
-                    stream.write_audio_chunk(
-                        0,
-                        other_level*demixed_other.T + bass_level*demixed_bass.T + vocals_level*demixed_vocals.T + drums_level*demixed_drums.T
-                    )
+                    output_mix = other_level*demixed_other.T + bass_level*demixed_bass.T + vocals_level*demixed_vocals.T + drums_level*demixed_drums.T
+
+                    stream.write_audio_chunk(0, output_mix)
 
                     root.update_slider(frame)
-                    await asyncio.sleep(0) #.01)
+                    root.update_spectrogram(get_spectrogram(output_mix, rate))
+                    await asyncio.sleep(0)
         except asyncio.CancelledError as e:
             print('demix loop was cancelled', e)
         finally:

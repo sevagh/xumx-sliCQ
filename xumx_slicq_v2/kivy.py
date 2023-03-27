@@ -8,6 +8,7 @@ from kivymd.app import MDApp
 from kivymd.uix.screen import Screen
 from kivymd.uix.slider import MDSlider
 from kivymd.uix.label import MDLabel
+from kivymd.uix.boxlayout import MDBoxLayout
 
 
 class DemixApp(MDApp):
@@ -66,6 +67,12 @@ class DemixApp(MDApp):
             orientation='horizontal',
         )
 
+        # spectrogram box
+        self.spectrogram_box = MDBoxLayout(
+            pos_hint={'center_x': 0.50, 'center_y': 0.0},
+            size_hint=(0.6, 0.1)
+        )
+
         screen = Screen()
 
         screen.add_widget(self.drums_label)
@@ -79,6 +86,7 @@ class DemixApp(MDApp):
         screen.add_widget(self.other_slider)
 
         screen.add_widget(self.progress_slider)
+        screen.add_widget(self.spectrogram_box)
 
         return screen
 
@@ -86,5 +94,12 @@ class DemixApp(MDApp):
         # update slider
         try:
             self.progress_slider.value = frame
+        except AttributeError:
+            pass
+
+    def update_spectrogram(self, spec):
+        try:
+            self.spectrogram_box.clear_widgets()
+            self.spectrogram_box.add_widget(spec)
         except AttributeError:
             pass
