@@ -20,3 +20,4 @@ logdir
 *.egg-info
 /build
 /cadenza-results
+.hypothesis

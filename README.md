@@ -59,6 +59,12 @@ Convolutional network applied to ragged sliCQT (time-frequency blocks with diffe
 
 You need Python + pip >= 3.8 or Docker. To use your GPU, you need the NVIDIA CUDA Toolkit and an NVIDIA CUDA-capable GPU. For Docker + GPU, you also need the [nvidia-docker 2.0 runtime](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker). For your own training, tuning, and evaluation, you need the [MUSDB18-HQ dataset](https://zenodo.org/record/3338373).
 
+**Podman support**
+
+Make these changes to use Podman instead of Docker:
+* Build command: `buildah bud -t "xumx-slicq-v2" .`
+* Run gpu string: `--gpus=all --ipc=host` (compared to `--gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864` which may result in OCI permission errors around setting ulimits)
+
 ### Install
 
 If you want to use Docker (**recommended**), git clone the source code and build the container:

@@ -1,5 +1,18 @@
 import torch
+from typing import List
 import xumx_slicq_v2.norbert as norbert
+
+
+# Calls blockwise_wiener for each element of the input list
+def wiener(mix_slicqt, slicqtgrams, wiener_win_len: int = 5000):
+    targets_slicqt = [None] * len(mix_slicqt)
+    for i, (mix_slicqt_block, slicqtgrams_block) in enumerate(
+        zip(mix_slicqt, slicqtgrams)
+    ):
+        targets_slicqt[i] = blockwise_wiener(
+            mix_slicqt_block, slicqtgrams_block, wiener_win_len
+        )
+    return targets_slicqt
 
 
 def blockwise_wiener(mix_slicqt, slicqtgrams, wiener_win_len_param: int = 5000):
@@ -80,28 +93,6 @@ def _atan2(y, x):
     return out
 
 
-def phasemix_sep(X, Ymag):
-    Ycomplex = [None] * len(X)
-    for i, (X_block, Ymag_block) in enumerate(zip(X, Ymag)):
-        Xphase_block = _atan2(X_block[..., 1], X_block[..., 0])
-
-        # phasemix-sep all targets at once
-        Ycomplex_block = torch.empty(
-            (
-                4,
-                *X_block.shape,
-            ),
-            dtype=X_block.dtype,
-            device=X_block.device,
-        )
-
-        Ycomplex_block[:, ..., 0] = Ymag_block[:, ...] * torch.cos(Xphase_block)
-        Ycomplex_block[:, ..., 1] = Ymag_block[:, ...] * torch.sin(Xphase_block)
-
-        Ycomplex[i] = Ycomplex_block
-    return Ycomplex
-
-
 def blockwise_phasemix_sep(X_block, Ymag_block):
     Xphase_block = _atan2(X_block[..., 1], X_block[..., 0])
 
@@ -125,3 +116,11 @@ def blockwise_phasemix_sep(X_block, Ymag_block):
 def abs_of_real_complex(Xcomplex_real_view):
     # abs(complex) = sqrt(a^2 + b^2)
     return torch.sqrt(Xcomplex_real_view[..., 0] ** 2 + Xcomplex_real_view[..., 1] ** 2)
+
+
+# Calls blockwise_phasemix_sep for each element of the input list
+def phasemix_sep(X: List[torch.Tensor], Ymag: List[torch.Tensor]):
+    Ycomplex = [None] * len(X)
+    for i, (X_block, Ymag_block) in enumerate(zip(X, Ymag)):
+        Ycomplex[i] = blockwise_phasemix_sep(X_block, Ymag_block)
+    return Ycomplex

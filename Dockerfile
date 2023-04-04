@@ -18,7 +18,7 @@ RUN python -m pip download onnxruntime -d /wheelhouse
 FROM nvcr.io/nvidia/pytorch:22.12-py3 as runtime
 
 RUN export DEBIAN_FRONTEND="noninteractive" && apt-get update -y && \
-	apt-get install -y ffmpeg libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev
+	apt-get install -y ffmpeg libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev git-lfs
 
 RUN python -m pip install --upgrade pip
 
@@ -40,3 +40,15 @@ WORKDIR /xumx-sliCQ-V2
 
 ARG ONNX_DEPS="onnxruntime-cpu"
 RUN python -m pip install --pre -e .[devel,${ONNX_DEPS}] --find-links /wheelhouse
+
+ARG CLONE_V1
+
+RUN if [ "${CLONE_V1}" == "yes" ]; then \
+	cd / &&\
+	# clone and install xumx-slicq \
+	git clone https://github.com/sevagh/xumx-sliCQ.git && \
+	cd xumx-sliCQ && \
+	# install deps \
+	python -m pip install gitpython && \
+	python -m pip install -e .; \
+fi

@@ -38,6 +38,9 @@ setup(
             "musdb==0.3.1",
             "museval==0.3.1",
         ],
+        "tests": [
+            "pytest",
+        ],
         "devel": [
             "tensorboard",
             "torchinfo",
@@ -48,6 +51,7 @@ setup(
             "matplotlib",
             "musdb==0.3.1",
             "museval==0.3.1",
+            "pytest",
         ],
         "demixui": [
             "kivy",
