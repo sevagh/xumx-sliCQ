@@ -89,8 +89,6 @@ def blockwise_spectrogram(
 
     mls_max = torch.quantile(mls, 0.999)
     print(f"mls_dur: {mls_dur}")
-    foo = numpy.linspace(0.0, mls_dur, num=ncoefs)
-    print(f"linspace: {foo.shape}")
     print(f"mls.T: {mls.T.shape}")
     print(f"freqs: {freqs.shape}")
 

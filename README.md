@@ -274,6 +274,32 @@ The baseline uses Demucs to perform VDBO separation before further processing; I
 
 </details>
 
+### DemixUI
+
+There's a toy UI I implemented using Kivy and asyncio. Install:
+```
+sevagh@pop-os:~/repos/xumx-sliCQ-V2$ pip install -e .[devel,demixui]
+...
+
+# kivy garden is weird, you need additional steps to install the matplotlib garden
+sevagh@pop-os:~/repos/xumx-sliCQ-V2$ chmod +x /home/sevagh/mambaforge/envs/xumx_v2/bin/garden
+sevagh@pop-os:~/repos/xumx-sliCQ-V2$ garden install matplotlib
+```
+
+The choice of asyncio is... questionable. The latency of the music demixing determines the latency of the user interface. The UI state is only updated after each segment is demixed. The user can control the levels of vocals/drums/bass/other via slides, and also toggle to a spectrogram view of the output audio:
+```
+sevagh@pop-os:~/repos/xumx-sliCQ-V2$ python -m xumx_slicq_v2.demixui --input-file=./masochist.wav
+`rk, fbins=262, fmin=32.90, fmax=22050.00, sllen=18060, trlen=4516
+ONNXRuntime chosen provider: ['CPUExecutionProvider']
+[INFO   ] [Logger      ] Record log in /home/sevagh/.kivy/logs/kivy_23-04-04_31.txt
+[INFO   ] [Kivy        ] v2.1.0
+[INFO   ] [Kivy        ] Installed at "/home/sevagh/mambaforge/envs/xumx_v2/lib/python3.10/site-packages/kivy/__init__.py"
+...
+```
+<br>
+<img src=".github/demixui1.png" width="50%" />
+<img src=".github/demixui2.png" width="50%" />
+
 ## Theory
 
 ### Motivation

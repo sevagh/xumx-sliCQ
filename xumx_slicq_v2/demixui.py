@@ -74,8 +74,8 @@ def demixui_main():
 
             # Compute and plot the spectrogram.
             f, t, Sxx = signal.spectrogram(torch.mean(x.T, axis=0), fs)
-            plt.ylabel('Frequency [Hz]')
-            plt.xlabel('Time [sec]')
+            plt.ylabel('Frequency (Hz)')
+            plt.xlabel('Time (s)')
             plt.pcolormesh(t, f, Sxx)
             #plt.show()
             wid = FigureCanvasKivyAgg(figure)
