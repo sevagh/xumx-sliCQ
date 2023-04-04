@@ -6,9 +6,21 @@ from kivy.clock import Clock
 from kivy.properties import ObjectProperty
 from kivymd.app import MDApp
 from kivymd.uix.screen import Screen
+from kivymd.uix.screenmanager import ScreenManager
 from kivymd.uix.slider import MDSlider
 from kivymd.uix.label import MDLabel
+from kivymd.uix.button import MDFlatButton
 from kivymd.uix.boxlayout import MDBoxLayout
+
+
+class ScreenButton(MDFlatButton):
+    screenmanager = ObjectProperty()
+    def __init__(self, *args, **kwargs):
+        super(ScreenButton, self).__init__(*args, **kwargs)
+
+    def on_press(self, *args):
+        super(ScreenButton, self).on_press(*args)
+        self.screenmanager.current = 'audio' if self.screenmanager.current == 'video' else 'video'
 
 
 class DemixApp(MDApp):
@@ -69,26 +81,47 @@ class DemixApp(MDApp):
 
         # spectrogram box
         self.spectrogram_box = MDBoxLayout(
-            pos_hint={'center_x': 0.50, 'center_y': 0.0},
-            size_hint=(0.6, 0.1)
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            size_hint=(1, 1)
         )
 
-        screen = Screen()
+        sm = ScreenManager()
 
-        screen.add_widget(self.drums_label)
-        screen.add_widget(self.bass_label)
-        screen.add_widget(self.vocals_label)
-        screen.add_widget(self.other_label)
+        self.screen_toggle_button_1 = ScreenButton(
+            screenmanager=sm,
+            text="Audio/Video",
+            pos_hint={'center_x': 0.075, 'center_y': 0.95},
+        )
+        self.screen_toggle_button_2 = ScreenButton(
+            screenmanager=sm,
+            text="Audio/Video",
+            pos_hint={'center_x': 0.075, 'center_y': 0.95},
+        )
 
-        screen.add_widget(self.drums_slider)
-        screen.add_widget(self.bass_slider)
-        screen.add_widget(self.vocals_slider)
-        screen.add_widget(self.other_slider)
+        screen1 = Screen(name='audio')
 
-        screen.add_widget(self.progress_slider)
-        screen.add_widget(self.spectrogram_box)
+        # audio/demix screen
+        screen1.add_widget(self.screen_toggle_button_1)
+        screen1.add_widget(self.drums_label)
+        screen1.add_widget(self.bass_label)
+        screen1.add_widget(self.vocals_label)
+        screen1.add_widget(self.other_label)
+        screen1.add_widget(self.drums_slider)
+        screen1.add_widget(self.bass_slider)
+        screen1.add_widget(self.vocals_slider)
+        screen1.add_widget(self.other_slider)
+        screen1.add_widget(self.progress_slider)
 
-        return screen
+        screen2 = Screen(name='video')
+
+        # spectrogram/viz screen
+        screen2.add_widget(self.screen_toggle_button_2)
+        screen2.add_widget(self.spectrogram_box)
+
+        sm.add_widget(screen1)
+        sm.add_widget(screen2)
+        sm.current = 'audio'
+        return sm
 
     def update_slider(self, frame):
         # update slider

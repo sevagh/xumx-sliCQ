@@ -40,7 +40,7 @@ def demixui_main():
     audio, rate = load_audio(args.input_file)
 
     xumx_separator = Separator.load(
-        #model_path=".github/pretrained_models_other/pretrained_model_tiny_metal",
+        #model_path=".github/pretrained_models_other/pretrained_model_tiny_rt",
         model_path="pretrained_model_realtime",
         runtime_backend="onnx-cpu",
     )
@@ -64,13 +64,13 @@ def demixui_main():
     import matplotlib
     matplotlib.use('module://kivy.garden.matplotlib.backend_kivy')
     import matplotlib.pyplot as plt
-    from kivy.garden.matplotlib.backend_kivyagg import FigureCanvas
+    from kivy.garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 
     def get_spectrogram(x, fs):
-        with plt.style.context(('dark_background')):
+        with plt.style.context(('Solarize_Light2')):
             figure = plt.figure()
-            #figure.set_facecolor('gray')
-            #figure.patch.set_alpha(0.3)
+            figure.set_facecolor('gray')
+            figure.patch.set_alpha(0.3)
 
             # Compute and plot the spectrogram.
             f, t, Sxx = signal.spectrogram(torch.mean(x.T, axis=0), fs)
@@ -78,7 +78,7 @@ def demixui_main():
             plt.xlabel('Time [sec]')
             plt.pcolormesh(t, f, Sxx)
             #plt.show()
-            wid = FigureCanvas(figure)
+            wid = FigureCanvasKivyAgg(figure)
             plt.close()
         return wid
 
