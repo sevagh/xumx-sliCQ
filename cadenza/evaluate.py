@@ -16,6 +16,7 @@ from omegaconf import DictConfig
 from scipy.io import wavfile
 
 from clarity.evaluator.haaqi import compute_haaqi
+#from clarity_gpu.evaluator.haaqi import compute_haaqi
 
 # pylint: disable=too-many-locals
 # pylint: disable=import-error

@@ -427,7 +427,7 @@ In xumx-sliCQ, Wiener-EM was only applied in the STFT domain as a post-processin
 <details>
 <summary>Discovering hyperparameters with Optuna</summary>
 
-Using the included [Optuna tuning script](./xumx_slicq_v2/tuning.py), new hyperparameters that gave the highest SDR after cut-down training/validation epochs were:
+Using the included [Optuna tuning script](./xumx_slicq_v2/optuna.py), new hyperparameters that gave the highest SDR after cut-down training/validation epochs were:
 * Changing the hidden sizes (channels) of the 2-layer CDAE from 25,55 to 50,51 (increased the model size from ~28-30MB to 60MB)
 * Changing the size of the time filter in the 2nd layer from 3 to 4
 
