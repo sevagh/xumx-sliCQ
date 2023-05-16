@@ -8,9 +8,14 @@ path:
   listeners_valid_file: ${path.metadata_dir}/listeners.valid.json
   exp_folder: /exp # folder to store enhanced signals and final results
 
+sample_rate: 44100       # sample rate of the input mixture
+stem_sample_rate: 24000  # sample rate output stems
+remix_sample_rate: 32000 # sample rate for output remixed signal
+
 nalr:
   nfir: 220
-  fs: 44100
+  #sample_rate: ${sample_rate}
+  fs: ${sample_rate}
 
 apply_compressor: False
 compressor:
@@ -23,6 +28,7 @@ compressor:
 soft_clip: True
 
 separator:
+  model: xumx_slicq_v2
   device: ~
 
 evaluate:
