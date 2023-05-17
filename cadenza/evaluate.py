@@ -16,6 +16,11 @@ from omegaconf import DictConfig
 from scipy.io import wavfile
 
 from clarity.evaluator.haaqi import compute_haaqi
+from clarity.utils.signal_processing import (
+    resample,
+    compute_rms
+)
+from clarity.utils.flac_encoder import read_flac_signal
 #from clarity_gpu.evaluator.haaqi import compute_haaqi
 
 # pylint: disable=too-many-locals

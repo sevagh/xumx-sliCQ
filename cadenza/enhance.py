@@ -23,8 +23,9 @@ from clarity.utils.signal_processing import (
     denormalize_signals,
     normalize_signal,
     to_16bit,
+    resample
 )
-from recipes.cad1.task1.baseline.evaluate import make_song_listener_list, resample
+from recipes.cad1.task1.baseline.evaluate import make_song_listener_list
 
 # pylint: disable=too-many-locals
 
