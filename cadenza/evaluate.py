@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import csv
+import gc
 import hashlib
 import itertools
 import json
 import logging
 from pathlib import Path
 from typing import Any
+from multiprocessing import Pool
+from itertools import repeat
 
 import hydra
 import numpy as np
@@ -227,6 +230,25 @@ def _evaluate_song_listener(
     return float(combined_score), per_instrument_score
 
 
+# define a function for parallel evaluation
+def evaluate_song_listener(song_listener, config, songs, listener_audiograms, enhanced_folder):
+    song, listener = song_listener
+    split_dir = "train"
+    if songs[songs["Track Name"] == song]["Split"].tolist()[0] == "test":
+        split_dir = "test"
+
+    combined_score, per_instrument_score = _evaluate_song_listener(
+        song,
+        listener,
+        config,
+        split_dir,
+        listener_audiograms[listener],
+        enhanced_folder,
+    )
+
+    return listener, song, combined_score, per_instrument_score
+
+
 @hydra.main(config_path="", config_name="config")
 def run_calculate_aq(config: DictConfig) -> None:
     """Evaluate the enhanced signals using the HAAQI metric."""
@@ -255,25 +277,29 @@ def run_calculate_aq(config: DictConfig) -> None:
         config.evaluate.batch :: config.evaluate.batch_size
     ]
 
-    for song, listener in song_listener_pair:
-        split_dir = "train"
-        if songs[songs["Track Name"] == song]["Split"].tolist()[0] == "test":
-            split_dir = "test"
+    arg2_repeat = list(itertools.repeat(config, len(song_listener_pair)))
+    arg3_repeat = list(itertools.repeat(songs, len(song_listener_pair)))
+    arg4_repeat = list(itertools.repeat(listener_audiograms, len(song_listener_pair)))
+    arg5_repeat = list(itertools.repeat(enhanced_folder, len(song_listener_pair)))
 
-        combined_score, per_instrument_score = _evaluate_song_listener(
-            song,
-            listener,
-            config,
-            split_dir,
-            listener_audiograms[listener],
-            enhanced_folder,
+    # set up a multiprocessing pool to process song_listener_pair in parallel
+    with Pool(config.evaluate.num_workers) as pool:
+        # song_listener, config, songs, listener_audiograms, enhanced_folder
+        results = pool.starmap(
+            evaluate_song_listener, 
+            zip(song_listener_pair, arg2_repeat, arg3_repeat, arg4_repeat, arg5_repeat)
         )
+
+    for listener, song, combined_score, per_instrument_score in results:
         results_file.add_result(
             listener,
             song,
             score=combined_score,
             instruments_scores=per_instrument_score,
         )
+
+    # desperately try to save RAM
+    gc.collect()
 
 
 # pylint: disable = no-value-for-parameter
