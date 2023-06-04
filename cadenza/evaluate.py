@@ -240,7 +240,7 @@ def run_calculate_aq(config: DictConfig) -> None:
         listener_audiograms = json.load(fp)
 
     enhanced_folder = Path("enhanced_signals")
-    logger.info(f"Evaluating from {enhanced_folder} directory")
+    logger.info(f"Evaluating batch #{config.evaluate.batch+1} out of {config.evaluate.batch_size} from {enhanced_folder} directory")
 
     results_file = ResultsFile(
         f"scores_{config.evaluate.batch + 1}-{config.evaluate.batch_size}.csv"
