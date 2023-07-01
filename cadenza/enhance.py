@@ -154,6 +154,7 @@ def decompose_signal(
     signal: np.ndarray,
     signal_sample_rate: int,
     device: torch.device,
+    sources_list: list[str],
     left_audiogram: np.ndarray,
     right_audiogram: np.ndarray,
     normalise: bool = True,
@@ -193,7 +194,7 @@ def decompose_signal(
     if normalise:
         sources = denormalize_signals(sources, ref)
 
-    signal_stems = map_to_dict(sources, model.sources)
+    signal_stems = map_to_dict(sources, sources_list)
     return signal_stems
 
 

@@ -28,7 +28,7 @@ RUN python -m pip install /wheelhouse/torchaudio*.whl
 RUN python -m pip install /wheelhouse/onnxruntime*.whl
 
 # install clarity from source
-RUN git clone https://github.com/claritychallenge/clarity -b v0.3.2 /clarity
+RUN git clone https://github.com/claritychallenge/clarity -b v0.3.4 /clarity
 WORKDIR /clarity
 # install deps for clarity
 RUN python -m pip install hydra pandas omegaconf soxr
