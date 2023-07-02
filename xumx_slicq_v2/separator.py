@@ -43,6 +43,10 @@ def download_url(url, output_path):
 
 
 class Separator(nn.Module):
+    # to be compatible with cadenza code
+    # following the same order of data.py
+    sources = ["bass", "vocals", "other", "drums"]
+
     @classmethod
     def load(
         cls,
@@ -101,10 +105,6 @@ class Separator(nn.Module):
         super(Separator, self).__init__()
         # saving parameters
 
-        # to be compatible with cadenza code
-        # following the same order of data.py
-        self.sources = ["bass", "vocals", "other", "drums"]
-
         self.device = device
         self.nb_channels = 2
         self.register_buffer("sample_rate", torch.as_tensor(sample_rate))
@@ -118,6 +118,8 @@ class Separator(nn.Module):
 
         self.nsgt, self.insgt, self.cnorm = encoder
         self.quiet = quiet
+
+        self.sources = Separator.sources
 
     def freeze(self):
         # set all parameters as not requiring gradient, more RAM-efficient
@@ -156,6 +158,14 @@ class Separator(nn.Module):
             ]
 
             n_samples = audio.shape[-1]
+
+            min_samples = int(self.nsgt.nsgt.sllen/2) + 1
+            pad = 0
+            if n_samples < min_samples:
+                # pad
+                pad = min_samples - n_samples
+                #raise ValueError("too short!")
+                audio = torch.cat([audio, torch.zeros((*audio.shape[:-1], pad), device=audio.device)], dim=-1)
 
             X = self.nsgt(audio)
 
@@ -236,7 +246,7 @@ class Separator(nn.Module):
         estimates_dict = {}
 
         # follow the ordering in data.py
-        for k, target in enumerate(self.sources):
+        for k, target in enumerate(Separator.sources):
             estimates_dict[target] = estimates[k]
 
         if aggregate_dict is not None:
