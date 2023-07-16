@@ -1,41 +1,28 @@
----
-title: 'Better music demixing with the sliCQ transform'
-tags:
-  - separation
-  - cqt
-  - time-frequency
-authors:
-  - name: Sevag Hanssian
-    affiliation: "1"
-affiliations:
- - name: McGill University
-   index: 1
-date: 19 September 2021
-bibliography: paper.bib
----
-<!--
-Your report should include:
-    abstract
-    introduction
-    sections on experimental setup/methodology including system information and model/network architecture
-    evaluation/results
-    discussion
-    conclusion
-    references.
-Please provide an estimation of the computational resources needed. You must describe any external data and pre-existing tools, software and models used.
--->
+\documentclass{INTERSPEECH2023}
 
-# Abstract
+\title{Better Music Demixing with the sliCQ Transform}
+\name{Sevag Hanssian$^1$}
+%The maximum number of authors in the author list is 20. If the number of contributing authors is more than this, they should be listed in a footnote or the acknowledgement section.
+\address{$^1$Canada}
+\email{sevagh@protonmail.com}
 
-Music source separation, or music demixing, is the task of decomposing a song into its constituent sources, which are typically isolated instruments (e.g., drums, bass, and vocals). Open-Unmix (UMX) [@umx], and the improved variant CrossNet-Open-Unmix (X-UMX) [@xumx], are high-performing models that use Short-Time Fourier Transform (STFT) as the representation of music signals, and apply masks to the magnitude STFT to separate mixed music into four sources: vocals, drums, bass, and other.
+\begin{document}
 
-The time-frequency uncertainty principle states that the STFT of a signal cannot be maximally precise in both time and frequency [@gabor1946]. The tradeoff in time-frequency resolution can significantly affect music demixing results [@tftradeoff1]. Our first adaptation of UMX, xumx-sliCQ^[<https://github.com/sevagh/xumx-sliCQ>] [@hanssian21], submitted to the 2021 Music Demixing Challenge [@mdx21], replaced the STFT with the sliCQT [@slicq], a time-frequency transform with varying time-frequency resolution. xumx-sliCQ achieved a score of 3.6 dB. For the Cadenza Challenge in 2023, we submitted an improved xumx-sliCQ-V2 which scored 4.4 dB.
+\maketitle
+ 
+\begin{abstract}
+% 1000 characters. ASCII characters only. No citations.
+Music source separation, or music demixing, is the task of decomposing a song into its constituent sources, which are typically isolated instruments (e.g., drums, bass, and vocals). Open-Unmix (UMX), and the improved variant CrossNet-Open-Unmix (X-UMX), are high-performing models that use Short-Time Fourier Transform (STFT) as the representation of music signals, and apply masks to the magnitude STFT to separate mixed music into four sources: vocals, drums, bass, and other.
 
-# Introduction
+The time-frequency uncertainty principle states that the STFT of a signal cannot be maximally precise in both time and frequency. The tradeoff in time-frequency resolution can significantly affect music demixing results. Our first adaptation of UMX, xumx-sliCQ, submitted to the 2021 Music Demixing Challenge, replaced the STFT with the sliCQT, a time-frequency transform with varying time-frequency resolution. xumx-sliCQ achieved a score of 3.6 dB. For the Cadenza Challenge in 2023, we submitted an improved xumx-sliCQ-V2 which scored 4.4 dB.
+\end{abstract}
+\noindent\textbf{Index Terms}: music source separation, music demixing, deep neural networks, time-frequency resolution
+
+\section{Introduction}
 
 The STFT is computed by applying the Discrete Fourier Transform on fixed-size windows of the input signal. From both auditory and musical motivations, variable-size windows are preferred, with long windows in low-frequency regions to capture detailed harmonic information with a high frequency resolution, and short windows in high-frequency regions to capture transients with a high time resolution [@doerflerphd]. The sliCQ Transform (sliCQT) [@slicq] is a realtime variant of the Nonstationary Gabor Transform (NSGT) [@balazs] for variable-length input signals. These are time-frequency transforms with complex Fourier coefficients and perfect inverses that use varying windows to achieve nonlinear time or frequency resolution. An example application of the NSGT/sliCQT is an invertible Constant-Q Transform (CQT) [@jbrown].
 
-# Methodology
+\section{Methodology}
 
 In xumx-sliCQ, the sliCQT parameters of 262 bins on the Bark scale between 32.9--22050 Hz were chosen in a random parameter search [@hanssian21]. STFT and sliCQT spectrograms of a glockenspiel signal^[<https://github.com/ltfat/ltfat/blob/master/signals/gspi.wav>] are shown in \autoref{fig:spectrograms}.
 
@@ -60,36 +47,26 @@ In xumx-sliCQ, we applied the overlap-add before the convolutional layers, and a
 	\label{fig:slicqtukeys}
 \end{figure}
 
-2. Applying differentiable Wiener-EM filtering in the network and using complex MSE loss
-
-In xumx-sliCQ, the output of the neural network is the magnitude sliCQT, and the real MSE loss is computed from the real-valued magnitude sliCQT coefficients. In xumx-sliCQ-V2, we apply differentiable Wiener-EM filtering to further separate the four (VDBO) targets in the neural network, such that the output is the complex sliCQT. We replace the magnitude MSE loss with complex MSE loss, inspired by Danna-Sep \todo cite this.
-
-3. Adding a new loss term: mask-sum loss
-
-In music demixing systems that apply masks to magnitude spectral coefficients, the mixture is considered to be a linear sum of the four targets. is that a sum of the four target magnitude spectrograms must equal to the magnitude spectrogram of the input mixture:
-
-\todo{math formula sum here}
-
-For this reason, we use a Sigmoid as a final activation layer in both xumx-sliCQ and xumx-sliCQ-V2, to output a soft mask (in [0, 1]). In xumx-sliCQ-V2, we added a new loss term, the mask sum loss, which sums the intermediate magnitude mask of the four targets, and computes the MSE from a matrix of ones.
-
-# Results
+\section{Results}
 
 Our model, xumx-sliCQ-V2, was trained on MUSDB18-HQ. On the test set, xumx-sliCQ-V2 achieved a total SDR of 4.4 dB versus the 4.64 dB of UMX and 5.54 dB of X-UMX, performing worse than the original STFT-based models, but better than the first xumx-sliCQ. The overall system architecture of xumx-sliCQ-V2 is similar to X-UMX, shown in \autoref{fig:blockdiagram}.
 
 ![xumx-sliCQ overall system diagram.\label{fig:blockdiagram}](https://raw.githubusercontent.com/sevagh/mdx-submissions21/HANSSIAN/static-assets/xumx_overall_arch.png){ width=100% }
 
-# Discussion
+
+\section{Discussion}
 
 The Cadenza Challenge Task 1 applies further processing on top of the VDBO demixing system, and the final evaluation uses the HAAQI metric. We chose to focus on the VDBO music demixing problem, and used the traditional BSS metrics (and SDR) to measure the improvement of xumx-sliCQ-V2 over xumx-sliCQ.
 
 Some of the improvements made in xumx-sliCQ-V2 can be generalized to any magnitude spectrogram masking approach: applying Wiener-EM and complex MSE loss on complex Fourier coefficients, and adding a mask-sum loss term to enforce the linear additive mixture assumption.
 
-# Conclusion
+\section{Conclusion}
 
 We presented xumx-sliCQ-V2, an improved variant of xumx-sliCQ. These systems propose to replace the STFT of X-UMX with a Bark-scale sliCQT, a nonuniform time-frequency transform whose characteristics more closely map to the human auditory system. The total SDR went from 3.6 dB to 4.4 dB, demonstrating significantly improved music demixing results from the changes in xumx-sliCQ-V2.
 
 We also point out that the weights of xumx-sliCQ-V2 are 60 MB in size, less than half the size of X-UMX. It was designed for fast inference with simple convolutional layers, which might be useful on smaller embedded devices.
 
-\newpage
+\bibliographystyle{IEEEtran}
+\bibliography{mybib}
 
-# References
+\end{document}
