@@ -3,12 +3,12 @@ LATEXMK_FLAGS := "-jobname=cad1_23_hanssian"
 texpdf:
 	latexmk $(tex_fname) ${LATEXMK_FLAGS} 
 
-arxiv-dev: export LATEXMK_FLAGS="-pvc"
-arxiv-dev: arxiv
-arxiv: tex_fname="template.tex"
-arxiv: texpdf
+paper-dev: LATEXMK_FLAGS += -pvc
+paper-dev: paper
+paper: tex_fname="template.tex"
+paper: texpdf
 
-all: arxiv
+all: paper
 
 clean:
 	latexmk -C ${LATEXMK_FLAGS}

@@ -59,6 +59,7 @@
 \RequirePackage{lipsum}  
 \RequirePackage{tipa}
 \RequirePackage{enumitem}
+\RequirePackage{balance}
 
 % hyperref is used to ensure author names 
 % do not appear in PDF metadata
