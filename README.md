@@ -14,7 +14,7 @@ It demixes a musical mixture into stems (vocals/drums/bass/other) by masking the
 
 **The realtime model scores 4.07 dB and is light and fast!** It takes an average of 2 seconds to demix a song with a GPU and 11 seconds with a CPU using PyTorch.<sup>†</sup> The provided ONNX model optimizes the performance further, taking 7 seconds on the CPU.
 
-Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
+Both variants beat the 3.6 dB score of the original [xumx-sliCQ](https://github.com/sevagh/xumx-sliCQ/tree/v1) (28 MB) with the improvements [described here](#improvements-over-xumx-slicq). It also brings the performance closer to the 4.64 dB and 5.54 dB scored by UMX and X-UMX (137 MB) respectively.<sup>‡</sup>
 
 <!--
 Cite xumx-sliCQ-V2:
