@@ -18,6 +18,8 @@ import torchinfo
 from contextlib import nullcontext
 import sklearn.preprocessing
 from torch.utils.tensorboard import SummaryWriter
+#import torch._dynamo
+#torch._dynamo.config.suppress_errors = True
 
 from .data import MUSDBDataset, PeripheryDataset, custom_collate
 
@@ -380,9 +382,8 @@ def training_main():
         input_scales=scaler_std,
     ).to(device, memory_format=torch.channels_last)
 
-    if '2.0.0' in torch.__version__:
-        print("Running torch.compile (pytorch 2.0)...")
-        unmix = torch.compile(unmix)
+    #print("Running torch.compile")
+    #unmix = torch.compile(unmix)
 
     if not args.quiet:
         torchinfo.summary(unmix, input_data=(jagged_slicq,))

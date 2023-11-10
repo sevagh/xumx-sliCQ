@@ -297,12 +297,12 @@ def load_target_models(
         # fetch config json and weights from github
         # use xumx-slicq-v1 urls for now while testing the code
         if not realtime:
-            json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.json"
-            pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth"
+            json_url = "https://github.com/sevagh/xumx-sliCQ/raw/v2/pretrained_model/xumx_slicq_v2.json"
+            pth_url = "https://github.com/sevagh/xumx-sliCQ/raw/v2/pretrained_model/xumx_slicq_v2.pth"
         else:
-            json_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.json"
-            pth_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.pth"
-            onnx_url = "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model_realtime/xumx_slicq_v2.onnx"
+            json_url = "https://github.com/sevagh/xumx-sliCQ/raw/v2/pretrained_model_realtime/xumx_slicq_v2.json"
+            pth_url = "https://github.com/sevagh/xumx-sliCQ/raw/v2/pretrained_model_realtime/xumx_slicq_v2.pth"
+            onnx_url = "https://github.com/sevagh/xumx-sliCQ/raw/v2/pretrained_model_realtime/xumx_slicq_v2.onnx"
 
         hub_dir = Path(torch.hub.get_dir())
         hub_dir.mkdir(parents=True, exist_ok=True)

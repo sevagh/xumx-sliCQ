@@ -59,6 +59,9 @@ if __name__ == "__main__":
         "--model-path", type=str, default=None, help="custom model path"
     )
     parser.add_argument(
+        "--musdb-root", type=str, default="/MUSDB18-HQ", help="path to musdb18-hq"
+    )
+    parser.add_argument(
         "--subset", type=str, default="test", help="MUSDB subset (`train`/`test`)"
     )
     parser.add_argument(
@@ -77,7 +80,7 @@ if __name__ == "__main__":
     print(f"Using torch device {device} for backend {args.runtime_backend}")
 
     mus = musdb.DB(
-        root="/MUSDB18-HQ",
+        root=args.musdb_root,
         download=False,
         subsets=args.subset,
         is_wav=True,

@@ -105,3 +105,23 @@ config 4: bass from blend-2, other 3 from blend-1 -
 
         ests = ests1.clone()
         ests[bass_idx] = ests2[bass_idx]
+
+model: mask sum: 4.4 dB
+	loss: 0.0405 (leapfrog 0.0407)
+	vocals          ==> SDR:   4.791  SIR:   7.794  ISR:   8.579  SAR:   4.500
+	drums           ==> SDR:   4.846  SIR:   8.062  ISR:   8.649  SAR:   4.953
+	bass            ==> SDR:   4.690  SIR:   8.778  ISR:   5.558  SAR:   4.193
+	other           ==> SDR:   3.273  SIR:   2.532  ISR:   8.065  SAR:   4.422
+
+nsgt bugfix + new training (loss: 0.0406): 4.276
+        vocals          ==> SDR:   4.579  SIR:   7.465  ISR:   8.884  SAR:   4.317
+        drums           ==> SDR:   4.913  SIR:   8.075  ISR:   9.425  SAR:   5.367
+        bass            ==> SDR:   4.377  SIR:   9.169  ISR:   5.311  SAR:   3.950
+        other           ==> SDR:   3.235  SIR:   2.502  ISR:   7.948  SAR:   4.520
+
+nsgt bugfix + old training (loss: 0.0405):
+        vocals          ==> SDR:   4.791  SIR:   7.794  ISR:   8.579  SAR:   4.500
+        drums           ==> SDR:   4.854  SIR:   8.064  ISR:   8.649  SAR:   5.079
+        bass            ==> SDR:   4.690  SIR:   8.778  ISR:   5.557  SAR:   4.193
+        other           ==> SDR:   3.273  SIR:   2.532  ISR:   8.065  SAR:   4.544
+

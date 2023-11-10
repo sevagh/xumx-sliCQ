@@ -69,14 +69,14 @@ Make these changes to use Podman instead of Docker:
 
 If you want to use Docker (**recommended**), git clone the source code and build the container:
 ```
-$ git clone https://github.com/sevagh/xumx-sliCQ-V2
-$ cd ./xumx-sliCQ-V2
+$ git clone https://github.com/sevagh/xumx-sliCQ -b v2
+$ cd ./xumx-sliCQ
 $ docker build -t "xumx-slicq-v2" .
 ```
 
 The container is based on the [NVIDIA PyTorch NGC Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) to include features and optimizations for to NVIDIA GPUs, such as automatic [TF32 for Ampere+](https://blogs.nvidia.com/blog/2020/05/14/tensorfloat-32-precision-format/), [bfloat16 support for Ampere+](https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html), and more.
 
-To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ-V2 to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
+To dynamically update the source code in the container while you develop new features, you can volume mount the local checkout of xumx-sliCQ to `:/xumx-sliCQ-V2`. If not, the container will use a frozen copy of the source code when you built the image.
 
 If you want to use pip, the project is [available on PyPI.org](https://pypi.org/project/xumx-slicq-v2/):
 ```
@@ -121,7 +121,7 @@ If you installed the package with pip, run them like `python -m xumx_slicq_v2.$s
 ```
 $ python -m xumx_slicq_v2 --audio-backend="sox_io" --input-dir=./input/ --output-dir=./output/
 Using torch device cpu for backend torch-cpu
-Downloading: "https://github.com/sevagh/xumx-sliCQ-V2/raw/main/pretrained_model/xumx_slicq_v2.pth" to /home/sevagh/.cache/torch/hub/checkpoints/xumx_slicq_v2_offline.pth
+Downloading: "https://github.com/sevagh/xumx-sliCQ/raw/main/pretrained_model/xumx_slicq_v2.pth" to /home/sevagh/.cache/torch/hub/checkpoints/xumx_slicq_v2_offline.pth
 100%|████████████████████████████████████████████████████████████████████████| 59.6M/59.6M [00:09<00:00, 6.25MB/s]
 scale=bark, fbins=262, fmin=32.90, fmax=22050.00, sllen=18060, trlen=4516
 song chunks: 100%|██████████████████████████████████████████████████████████████████| 1/1 [00:01<00:00,  1.28s/it]
@@ -164,7 +164,7 @@ Inference time for the realtime variant is **2x faster** than the offline model,
 
 The offline model has to trade off speed and memory usage from the embedded Wiener-EM step, so I only use it for offline CPU inference. The embedded Wiener-EM filtering step from the Norbert library also introduces additional complexity (complex numbers, etc.) for ONNX exporting.
 
-The ONNX optimizations could be taken further with more effort and/or modifying the xumx-sliCQ-V2 code:
+The ONNX optimizations could be taken further with more effort and/or modifying the xumx-sliCQ code:
 * Improving the CUDA performance
 * Enhancing CUDA with the TensorRT provider
 * Enhancing CPU performance with the OpenVino provider
@@ -226,7 +226,7 @@ By default, the pretrained model will be evaluated. **Pass different models to e
 ```
 $ docker run --rm -it \
     -v /path/to/MUSDB18-HQ/dataset:/MUSDB18-HQ \
-    -v /path/to/xumx-sliCQ-V2/source/code:/xumx-sliCQ-V2/ \
+    -v /path/to/xumx-sliCQ/source/code:/xumx-sliCQ-V2/ \
     xumx-slicq-v2 \
     python -m xumx_slicq_v2.evaluation \
     --model-path='/xumx-sliCQ-V2/model-to-evaluate'
@@ -278,17 +278,17 @@ The baseline uses Demucs to perform VDBO separation before further processing; I
 
 There's a toy UI I implemented using Kivy and asyncio. Install:
 ```
-sevagh@pop-os:~/repos/xumx-sliCQ-V2$ pip install -e .[devel,demixui]
+sevagh@pop-os:~/repos/xumx-sliCQ$ pip install -e .[devel,demixui]
 ...
 
 # kivy garden is weird, you need additional steps to install the matplotlib garden
-sevagh@pop-os:~/repos/xumx-sliCQ-V2$ chmod +x /home/sevagh/mambaforge/envs/xumx_v2/bin/garden
-sevagh@pop-os:~/repos/xumx-sliCQ-V2$ garden install matplotlib
+sevagh@pop-os:~/repos/xumx-sliCQ$ chmod +x /home/sevagh/mambaforge/envs/xumx_v2/bin/garden
+sevagh@pop-os:~/repos/xumx-sliCQ$ garden install matplotlib
 ```
 
 The choice of asyncio is... questionable. The latency of the music demixing determines the latency of the user interface. The UI state is only updated after each segment is demixed. The user can control the levels of vocals/drums/bass/other via slides, and also toggle to a spectrogram view of the output audio:
 ```
-sevagh@pop-os:~/repos/xumx-sliCQ-V2$ python -m xumx_slicq_v2.demixui --input-file=./masochist.wav
+sevagh@pop-os:~/repos/xumx-sliCQ$ python -m xumx_slicq_v2.demixui --input-file=./masochist.wav
 `rk, fbins=262, fmin=32.90, fmax=22050.00, sllen=18060, trlen=4516
 ONNXRuntime chosen provider: ['CPUExecutionProvider']
 [INFO   ] [Logger      ] Record log in /home/sevagh/.kivy/logs/kivy_23-04-04_31.txt

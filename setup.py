@@ -17,8 +17,8 @@ setup(
     license="MIT",
     python_requires=">=3.8",
     install_requires=[
-        "torch>=1.13.1",
-        "torchaudio>=0.13.1",
+        "torch>=2.0.0",
+        "torchaudio>=2.0.0",
         "numpy",
         "tqdm",
         "requests",
@@ -35,8 +35,8 @@ setup(
             "onnxruntime",
         ],
         "musdb": [
-            "musdb==0.3.1",
-            "museval==0.3.1",
+            "musdb",
+            "museval",
         ],
         "tests": [
             "pytest",
@@ -49,8 +49,8 @@ setup(
             "optuna",
             "optuna-dashboard",
             "matplotlib",
-            "musdb==0.3.1",
-            "museval==0.3.1",
+            "musdb",
+            "museval",
             "pytest",
         ],
         "demixui": [
