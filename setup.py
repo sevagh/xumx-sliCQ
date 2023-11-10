@@ -7,7 +7,7 @@ with open("README.md", encoding="utf-8") as fh:
 
 setup(
     name="xumx-slicq-v2",
-    version="1.0.0a1",
+    version="1.0.0a2",
     author="Sevag Hanssian",
     author_email="sevagh@pm.me",
     url="https://github.com/sevagh/xumx-sliCQ-V2",
