@@ -77,5 +77,8 @@ def nsgtf_sl(f_slices, g, wins, nn, M=None, real=False, reducedform=0, device="c
                 [bucketed_tensors[block_ptr], c], dim=2
             )
 
+    # run an ifft on the last bucket
+    bucketed_tensors[-1] = torch.fft.ifft(bucketed_tensors[-1])
+
     # bucket-wise ifft
     return bucketed_tensors
