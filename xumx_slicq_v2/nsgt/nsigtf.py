@@ -48,29 +48,52 @@ def nsigtf_sl(cseq, gd, wins, nn, Ls=None, real=False, reducedform=0, device="cp
 
     # frequencies are bucketed by same time resolution
     fbin_ptr = 0
+    mfbin_ptr = len(loopparams)
+
     for i, fc in enumerate(cseq):
-        Lg_outer = fc.shape[-1]
-
         nb_fbins = fc.shape[2]
-        for j, (wr1, wr2, Lg) in enumerate(
-            loopparams[fbin_ptr : fbin_ptr + nb_fbins][:fbins]
-        ):
+
+        temp0 = torch.empty(*cseq_shape[:2], maxLg, dtype=fr.dtype, device=device)
+
+        for j, (wr1, wr2, Lg) in enumerate(loopparams[fbin_ptr : fbin_ptr + nb_fbins][:fbins]):
             freq_idx = fbin_ptr + j
-            assert Lg == Lg_outer
 
-            t = fc[:, :, j]
+            rr = 1 if freq_idx == 0 or freq_idx == nfreqs - 1 else 2
 
-            r = (Lg + 1) // 2
-            l = Lg // 2
+            for k in range(rr):
+                # the overlap-add procedure including multiplication with the synthesis windows
+                t = fc[:, :, j]
 
-            t1 = t[:, :, :r]
-            t2 = t[:, :, Lg - l : Lg]
+                if k == 1:
+                    mfbin_ptr -= 1
+                    freq_idx = mfbin_ptr
 
-            t[:, :, :Lg] *= gdiis[freq_idx, :Lg]
-            t[:, :, :Lg] *= Lg
+                    t = torch.concatenate(
+                        (
+                            t[:, :, 1:],
+                            torch.flip(t[:, :, 1:], dims=(2,)),
+                        ),
+                        dim=2,
+                    ).conj()
 
-            fr[:, :, wr1] += t2
-            fr[:, :, wr2] += t1
+                    # need new params corresponding to adjusted freq_idx
+                    wr1, wr2, Lg = loopparams[freq_idx]
+
+                r = (Lg + 1) // 2
+                l = Lg // 2
+
+                t1 = temp0[:, :, :r]
+                t2 = temp0[:, :, Lg - l : Lg]
+
+                t1[:, :, :] = t[:, :, :r]
+                t2[:, :, :] = t[:, :, Lg - l : Lg]
+
+                temp0[:, :, :Lg] *= gdiis[freq_idx, : Lg]
+                temp0[:, :, :Lg] *= Lg
+
+                fr[:, :, wr1] += t2
+                fr[:, :, wr2] += t1
+
         fbin_ptr += nb_fbins
 
     ftr = fr[:, :, : nn // 2 + 1] if real else fr
